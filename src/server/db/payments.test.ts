@@ -128,13 +128,14 @@ describe("payment request and claim state changes", () => {
           claimed_at: "2026-01-01T00:00:00Z",
           source: "friend_button",
           bank_alert_id: null,
+          amount: null,
           status: "pending",
           resolved_at: null,
         },
       },
     ]);
     const claim = await createPaymentClaim(db, "h1", { paymentRequestId: "pr1", source: "friend_button" });
-    expect(claim).toMatchObject({ id: "c1", status: "pending", bankAlertId: null });
+    expect(claim).toMatchObject({ id: "c1", status: "pending", bankAlertId: null, amount: null });
     expect(calls).toHaveLength(1);
     expect(calls[0].table).toBe("payment_claims");
     expect(argsOf(calls[0], "insert")[0][0]).toEqual({
@@ -142,17 +143,39 @@ describe("payment request and claim state changes", () => {
       payment_request_id: "pr1",
       source: "friend_button",
       bank_alert_id: null,
+      amount: null,
     });
   });
 
+  it("createPaymentClaim passes an explicit amount through and rejects non-positive ones", async () => {
+    const { db, calls } = createMockDb([
+      { data: { id: "c2", host_id: "h1", payment_request_id: "pr1", claimed_at: "x", source: "friend_button", bank_alert_id: null, amount: 1200, status: "pending", resolved_at: null } },
+    ]);
+    const claim = await createPaymentClaim(db, "h1", { paymentRequestId: "pr1", source: "friend_button", amount: 1200 });
+    expect(claim.amount).toBe(1200);
+    expect(argsOf(calls[0], "insert")[0][0]).toMatchObject({ amount: 1200 });
+
+    await expect(createPaymentClaim(db, "h1", { paymentRequestId: "pr1", source: "friend_button", amount: 0 })).rejects.toThrow(/greater than zero/);
+    await expect(createPaymentClaim(db, "h1", { paymentRequestId: "pr1", source: "friend_button", amount: 12.5 })).rejects.toThrow();
+    expect(calls).toHaveLength(1);
+  });
+
   it("confirm/reject delegate to the atomic RPCs", async () => {
-    const { db, calls } = createMockDb([{ data: "ledger-event-1" }, { data: null }]);
+    const { db, calls } = createMockDb([{ data: "ledger-event-1" }, { data: "ledger-event-2" }, { data: null }]);
     expect(await confirmPaymentClaim(db, "c1")).toBe("ledger-event-1");
+    expect(await confirmPaymentClaim(db, "c3", 300)).toBe("ledger-event-2");
     await rejectPaymentClaim(db, "c2");
     expect(calls).toEqual([
       expect.objectContaining({ rpc: "confirm_payment_claim", rpcArgs: { p_claim_id: "c1" } }),
+      expect.objectContaining({ rpc: "confirm_payment_claim", rpcArgs: { p_claim_id: "c3", p_amount: 300 } }),
       expect.objectContaining({ rpc: "reject_payment_claim", rpcArgs: { p_claim_id: "c2" } }),
     ]);
+  });
+
+  it("confirm with a non-positive override never reaches the database", async () => {
+    const { db, calls } = createMockDb([]);
+    await expect(confirmPaymentClaim(db, "c1", 0)).rejects.toThrow(/greater than zero/);
+    expect(calls).toHaveLength(0);
   });
 
   it("confirm surfaces the RPC's check violation (e.g. claim no longer pending)", async () => {

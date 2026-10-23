@@ -39,16 +39,23 @@ jobs:
 
   supabase:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CI: "true"
+      SUPABASE_TELEMETRY_DISABLED: "true"
     steps:
       - uses: actions/checkout@v5
 
+      # Pinned to the CLI version the migrations/types were generated with.
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 2.122.0
 
-      # Only the services the migrations and pgTAP tests need.
+      # Only the services the migrations and pgTAP tests need. stdin is closed so
+      # the CLI can never wait on a prompt.
       - name: Start Supabase
-        run: supabase start -x studio,imgproxy,mailpit,edge-runtime,logflare,vector,realtime,storage-api,supavisor
+        timeout-minutes: 8
+        run: supabase start -x studio,imgproxy,mailpit,edge-runtime,logflare,vector,realtime,storage-api,supavisor < /dev/null
 
       - name: Apply migrations from scratch
         run: supabase db reset

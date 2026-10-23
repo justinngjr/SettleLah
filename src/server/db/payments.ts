@@ -57,6 +57,12 @@ export interface PaymentClaim {
   readonly claimedAt: string;
   readonly source: Enums<"payment_claim_source">;
   readonly bankAlertId: string | null;
+  /**
+   * Amount actually paid. `null` on a pending `friend_button` claim means "the
+   * request amount"; bank-alert claims carry the alert's amount; after
+   * confirmation it is always set.
+   */
+  readonly amount: Cents | null;
   readonly status: Enums<"payment_claim_status">;
   readonly resolvedAt: string | null;
 }
@@ -84,6 +90,7 @@ export function toPaymentClaim(row: PaymentClaimRow): PaymentClaim {
     claimedAt: row.claimed_at,
     source: row.source,
     bankAlertId: row.bank_alert_id,
+    amount: row.amount,
     status: row.status,
     resolvedAt: row.resolved_at,
   };
@@ -114,8 +121,7 @@ export async function createPaymentRequest(
   input: NewPaymentRequest,
   options: CreatePaymentRequestOptions = {},
 ): Promise<PaymentRequest> {
-  assertNonNegativeCents(input.amount, "payment request amount");
-  if (input.amount === 0) throw new MoneyError("payment request amount must be greater than zero");
+  assertPositiveCents(input.amount, "payment request amount");
   const maxAttempts = options.maxAttempts ?? DEFAULT_REFERENCE_ATTEMPTS;
   const nextReference = options.generateReference ?? generateReference;
 
@@ -199,6 +205,12 @@ export interface NewPaymentClaim {
   readonly source: Enums<"payment_claim_source">;
   /** Required when `source` is `bank_alert`. */
   readonly bankAlertId?: string | null;
+  /**
+   * Amount paid, in cents (> 0). Omit for a friend-button claim to mean "the
+   * request amount" and for a bank-alert claim to use `bank_alerts.amount`.
+   * Set it when the host records a payment manually.
+   */
+  readonly amount?: Cents | null;
 }
 
 /**
@@ -207,11 +219,14 @@ export interface NewPaymentClaim {
  * ledger until the host confirms it.
  */
 export async function createPaymentClaim(db: DbClient, hostId: string, input: NewPaymentClaim): Promise<PaymentClaim> {
+  const amount = input.amount ?? null;
+  if (amount !== null) assertPositiveCents(amount, "payment claim amount");
   const insert: TablesInsert<"payment_claims"> = {
     host_id: hostId,
     payment_request_id: input.paymentRequestId,
     source: input.source,
     bank_alert_id: input.bankAlertId ?? null,
+    amount,
   };
   const row = unwrapRequired(await db.from("payment_claims").insert(insert).select("*").single(), "createPaymentClaim");
   return toPaymentClaim(row);
@@ -231,14 +246,24 @@ export async function listPendingClaims(db: DbClient, hostId: string): Promise<P
   return rows.map(toPaymentClaim);
 }
 
+function assertPositiveCents(amount: Cents, what: string): void {
+  assertNonNegativeCents(amount, what);
+  if (amount === 0) throw new MoneyError(`${what} must be greater than zero`);
+}
+
 /**
  * Confirms a pending claim: atomically (in the `confirm_payment_claim`
- * function) inserts the `payment` ledger event, marks the claim confirmed,
- * the request paid, rejects competing pending claims and marks a linked bank
+ * function) inserts a `payment` ledger event for the amount actually paid
+ * (`amount` here > claim amount > request amount), marks the claim confirmed,
+ * and marks the request paid only once confirmed payments cover it (then
+ * competing pending claims are rejected). Overpayment shows up as a negative
+ * balance (credit); underpayment leaves the request open. Marks a linked bank
  * alert confirmed. Returns the new ledger event id.
  */
-export async function confirmPaymentClaim(db: DbClient, claimId: string): Promise<string> {
-  return unwrapRequired(await db.rpc("confirm_payment_claim", { p_claim_id: claimId }), "confirmPaymentClaim");
+export async function confirmPaymentClaim(db: DbClient, claimId: string, amount?: Cents): Promise<string> {
+  if (amount !== undefined) assertPositiveCents(amount, "payment amount");
+  const args = amount === undefined ? { p_claim_id: claimId } : { p_claim_id: claimId, p_amount: amount };
+  return unwrapRequired(await db.rpc("confirm_payment_claim", args), "confirmPaymentClaim");
 }
 
 /** Rejects a pending claim; a linked proposed bank alert goes back to `unmatched`. */

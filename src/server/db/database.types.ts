@@ -129,14 +129,14 @@ isOneToOne: false
                   ]
                 },"payment_claims": {
                   Row: {
-                    "bank_alert_id": string | null,"claimed_at": string,"host_id": string,"id": string,"payment_request_id": string,"resolved_at": string | null,"source": Database["public"]['Enums']["payment_claim_source"],"status": Database["public"]['Enums']["payment_claim_status"]
+                    "amount": number | null,"bank_alert_id": string | null,"claimed_at": string,"host_id": string,"id": string,"payment_request_id": string,"resolved_at": string | null,"source": Database["public"]['Enums']["payment_claim_source"],"status": Database["public"]['Enums']["payment_claim_status"]
                   }
                   ComputedFields: never
                   Insert: {
-                    "bank_alert_id"?: string | null,"claimed_at"?: string,"host_id": string,"id"?: string,"payment_request_id": string,"resolved_at"?: string | null,"source": Database["public"]['Enums']["payment_claim_source"],"status"?: Database["public"]['Enums']["payment_claim_status"]
+                    "amount"?: number | null,"bank_alert_id"?: string | null,"claimed_at"?: string,"host_id": string,"id"?: string,"payment_request_id": string,"resolved_at"?: string | null,"source": Database["public"]['Enums']["payment_claim_source"],"status"?: Database["public"]['Enums']["payment_claim_status"]
                   }
                   Update: {
-                    "bank_alert_id"?: string | null,"claimed_at"?: string,"host_id"?: string,"id"?: string,"payment_request_id"?: string,"resolved_at"?: string | null,"source"?: Database["public"]['Enums']["payment_claim_source"],"status"?: Database["public"]['Enums']["payment_claim_status"]
+                    "amount"?: number | null,"bank_alert_id"?: string | null,"claimed_at"?: string,"host_id"?: string,"id"?: string,"payment_request_id"?: string,"resolved_at"?: string | null,"source"?: Database["public"]['Enums']["payment_claim_source"],"status"?: Database["public"]['Enums']["payment_claim_status"]
                   }
                   Relationships: [
                     {
@@ -314,7 +314,7 @@ isOneToOne: false
           }
           Functions: {
             "confirm_payment_claim":
-{ Args: { "p_claim_id": string }; Returns: string
+{ Args: { "p_amount"?: number,"p_claim_id": string }; Returns: string
                            },
 "friend_balance":
 { Args: { "p_friend_id": string,"p_host_id": string }; Returns: number
