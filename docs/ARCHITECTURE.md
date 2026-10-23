@@ -320,3 +320,14 @@ Pending `friend_button` claims from "I've paid" already surface through
   `payment` ledger event) / `rejectPaymentClaim`. "Remind me later" ->
   `afterSnooze`. Only the bound friend (`from.id`) can act on a request;
   anyone else gets a toast.
+
+## AI agent (`src/server/agent/`, `/app/agent`)
+
+The host chats with an assistant that can do anything the host app can do, with two rules enforced in code:
+
+- **Nothing writes without approval.** Tools are `{ name, description, input (zod), kind: "read" | "write", run, preview? }` and only wrap existing repository / reconcile / telegram functions. The loop (`loop.ts`) runs read tools and returns their results to the model; a write tool call only gets `preview()` computed and stored as a pending `agent_actions` row (an action card). `actions.ts#approveAction` is the single caller of a write tool's `run`: it atomically moves the row `pending -> approved` (the lock; one winner), re-validates the input, re-runs `preview` and compares `preview_hash`, and only executes when the card the host saw is still what would happen. Executed / rejected outcomes are appended to the transcript as data for the model's follow-up reply.
+- **Code handles the money.** Tool inputs carry amounts only as printed dollar strings parsed with `fromDollars`; `save_split` builds the same `SplitInput` as the Confirm screen and persists through `saveSplit` + `refreshPaymentRequests`.
+
+Schema (`20261023000700_agent_core.sql`): `agent_conversations`, `agent_messages` (role user|assistant|tool, `tool_calls` / `tool_result` jsonb, identity `seq`), `agent_actions` (tool, input, preview, `preview_hash`, status pending|approved|rejected|executed|failed|expired, `expires_at = created + 30 min`, result/error, executed_at). Composite `(id, host_id)` FKs and per-host RLS like every other table; the host cannot delete messages or actions directly.
+
+Model access reuses `LlmCaller` (`LLM_*` env) with native OpenAI tool calls, falling back per `(baseURL, model)` to a JSON protocol when a provider rejects `tools`. Tool results and anything the model reads are wrapped as delimited data and the system prompt treats instructions inside data as text. Routes: `POST /api/agent/chat` (SSE), `GET /api/agent/conversations/:id`, `POST /api/agent/actions/:id/approve|reject` (SSE). Chat-only today; `runTurn` only needs a message in the transcript, so a proactive trigger can reuse it.
