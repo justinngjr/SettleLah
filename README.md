@@ -30,6 +30,10 @@ Copy `.env.example` to `.env.local` and set:
 | ------------------------------- | --------------------------------- |
 | `NEXT_PUBLIC_SUPABASE_URL`      | Supabase project URL              |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon (public) API key    |
+| `LLM_BASE_URL`                  | OpenAI-compatible API root for receipt interpretation (server-only) |
+| `LLM_API_KEY`                   | API key for that provider (server-only) |
+| `LLM_MODEL`                     | Primary model name (server-only) |
+| `LLM_FALLBACK_MODEL`            | Optional second model tried once if the primary fails (server-only) |
 
 `.env*.local` files are gitignored. The app builds without real values; they
 are only required at runtime when a Supabase client is created.
@@ -47,6 +51,15 @@ are only required at runtime when a Supabase client is created.
 CI (`.github/workflows/ci.yml`) runs install (frozen lockfile), lint,
 typecheck, test and build on every push and pull request.
 
+## API
+
+| Route                 | What it does |
+| --------------------- | ------------ |
+| `POST /api/interpret` | Sends a receipt (image data URL or text), the host's note, the participants and `hostId` to the configured LLM and returns a *proposed* split computed by `src/domain` (amounts in cents). Nothing is persisted. See `src/server/interpret/`. |
+
+**`/api/interpret` is unauthenticated.** Anyone who can reach it can spend
+LLM credits. Do not deploy it publicly until authentication exists.
+
 ## Branches
 
 - `develop` is the integration branch. Feature branches are opened as PRs
@@ -60,6 +73,7 @@ typecheck, test and build on every push and pull request.
 src/
   app/            Next.js App Router routes and layouts
   domain/         Pure TypeScript business logic (see rule below)
+  server/         Server-only modules (e.g. interpret/: LLM receipt interpretation)
   lib/supabase/   Supabase client helpers (browser + server)
 supabase/
   config.toml     Supabase CLI config
