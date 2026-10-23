@@ -2,16 +2,23 @@
 
 import { useMemo, useState, useTransition } from "react";
 
-import { Button, DisabledReason, Field, Notice, Section } from "@/app/_ui";
+import { Button, DisabledReason, Field, Notice, Section, SelectField } from "@/app/_ui";
 
 import { saveReceipt } from "../../_actions/receipts";
 import { computeDraft, confirmBlockers, toSavePayload, type ReceiptDraft } from "../../_lib/receipt-draft";
 import { ItemEditor } from "./item-editor";
 import { SplitSummary } from "./summary";
 
+export interface ConfirmChat {
+  readonly telegramChatId: number;
+  readonly title: string | null;
+}
+
 export interface ConfirmScreenProps {
   readonly draft: ReceiptDraft;
   readonly hostId: string;
+  /** Linked Telegram groups the host may post the split to; empty hides the picker. */
+  readonly chats?: readonly ConfirmChat[];
   readonly onChange: (next: ReceiptDraft) => void;
   readonly onBack: () => void;
   readonly onSaved: (receiptId: string) => void;
@@ -19,9 +26,11 @@ export interface ConfirmScreenProps {
   readonly save?: typeof saveReceipt;
 }
 
-export function ConfirmScreen({ draft, hostId, onChange, onBack, onSaved, save = saveReceipt }: ConfirmScreenProps) {
+export function ConfirmScreen({ draft, hostId, chats = [], onChange, onBack, onSaved, save = saveReceipt }: ConfirmScreenProps) {
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [chatId, setChatId] = useState<string>("");
+  const [saved, setSaved] = useState<{ receiptId: string; notifyError: string } | null>(null);
   const [pending, startTransition] = useTransition();
 
   const computation = useMemo(() => computeDraft(draft, hostId), [draft, hostId]);
@@ -36,12 +45,13 @@ export function ConfirmScreen({ draft, hostId, onChange, onBack, onSaved, save =
 
   const confirm = () => {
     if (!computation.ok) return;
-    const payload = toSavePayload(draft, computation.split);
+    const payload = { ...toSavePayload(draft, computation.split), telegramChatId: chatId === "" ? null : Number(chatId) };
     setError(null);
     startTransition(async () => {
       const result = await save(payload);
-      if (result.ok) onSaved(result.receiptId);
-      else setError(result.error);
+      if (!result.ok) setError(result.error);
+      else if (result.notifyError) setSaved({ receiptId: result.receiptId, notifyError: result.notifyError });
+      else onSaved(result.receiptId);
     });
   };
 
@@ -145,9 +155,39 @@ export function ConfirmScreen({ draft, hostId, onChange, onBack, onSaved, save =
             maxLength={120}
           />
         ) : null}
+        {chats.length > 0 ? (
+          <SelectField
+            label="Post to a Telegram group (optional)"
+            id="confirm-chat"
+            name="telegramChatId"
+            value={chatId}
+            onChange={(e) => setChatId(e.target.value)}
+            disabled={pending || saved !== null}
+          >
+            <option value="">Don’t post</option>
+            {chats.map((chat) => (
+              <option key={chat.telegramChatId} value={chat.telegramChatId}>
+                {chat.title ?? `Group ${chat.telegramChatId}`}
+              </option>
+            ))}
+          </SelectField>
+        ) : null}
         {error ? <Notice role="alert">{error}</Notice> : null}
+        {saved ? (
+          <div className="space-y-4">
+            <Notice role="alert">{saved.notifyError}</Notice>
+            <Button type="button" onClick={() => onSaved(saved.receiptId)}>
+              Continue
+            </Button>
+          </div>
+        ) : null}
         <div className="flex flex-wrap items-center gap-6">
-          <Button type="button" onClick={confirm} disabled={!canConfirm} aria-describedby={blockers.length > 0 ? "confirm-blockers" : undefined}>
+          <Button
+            type="button"
+            onClick={confirm}
+            disabled={!canConfirm || saved !== null}
+            aria-describedby={blockers.length > 0 ? "confirm-blockers" : undefined}
+          >
             {pending ? "Saving…" : "Confirm and save"}
           </Button>
           <Button type="button" variant="tertiary" onClick={onBack} disabled={pending}>

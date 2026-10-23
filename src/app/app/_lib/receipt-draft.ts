@@ -159,6 +159,8 @@ export interface SaveReceiptPayload {
   readonly interpretation?: unknown;
   /** The total the host saw; the server refuses to save if it computes something else. */
   readonly expectedTotal: number;
+  /** Linked Telegram group to post the split to after saving; omitted/null = no post. */
+  readonly telegramChatId?: number | null;
 }
 
 export function toSavePayload(draft: ReceiptDraft, split: SplitResult): SaveReceiptPayload {
