@@ -8,7 +8,7 @@ import { Suspense } from "react";
  * redirect runs at request time inside a Suspense boundary (like the /app
  * routes) so neither the build nor Next's dev prerender validation evaluates it.
  */
-async function Redirect() {
+async function Redirect(): Promise<null> {
   await connection();
   redirect("/app");
 }
