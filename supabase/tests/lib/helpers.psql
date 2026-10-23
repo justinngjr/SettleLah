@@ -1,0 +1,61 @@
+-- Shared helpers for the pgTAP tests. Included with `\ir lib/helpers.psql`
+-- inside each test's transaction, so everything here is rolled back. The
+-- `.psql` extension keeps pg_prove from running this file as a test.
+
+create schema if not exists tests;
+
+-- Creates a confirmed host account (the profiles row is created by trigger).
+create or replace function tests.create_host(p_email text)
+returns uuid
+language plpgsql
+as $$
+declare
+  v_id uuid := gen_random_uuid();
+begin
+  insert into auth.users (
+    id, instance_id, aud, role, email, encrypted_password, email_confirmed_at,
+    raw_app_meta_data, raw_user_meta_data, created_at, updated_at,
+    confirmation_token, recovery_token, email_change_token_new, email_change, is_sso_user
+  ) values (
+    v_id, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', p_email,
+    extensions.crypt('password', extensions.gen_salt('bf')), now(),
+    '{"provider":"email","providers":["email"]}'::jsonb, '{}'::jsonb, now(), now(),
+    '', '', '', '', false
+  );
+  return v_id;
+end;
+$$;
+
+-- Runs the rest of the transaction as this host through PostgREST's eyes.
+create or replace function tests.authenticate_as(p_user_id uuid)
+returns void
+language plpgsql
+as $$
+begin
+  perform set_config('request.jwt.claims',
+    json_build_object('sub', p_user_id, 'role', 'authenticated', 'email', p_user_id || '@test.local')::text, true);
+  perform set_config('role', 'authenticated', true);
+end;
+$$;
+
+-- Back to the superuser (bypasses RLS, like the service role does).
+create or replace function tests.clear_auth()
+returns void
+language plpgsql
+as $$
+begin
+  perform set_config('request.jwt.claims', '', true);
+  perform set_config('role', 'postgres', true);
+end;
+$$;
+
+create or replace function tests.create_friend(p_host_id uuid, p_name text)
+returns uuid
+language sql
+as $$
+  insert into public.friends (host_id, display_name) values (p_host_id, p_name) returning id;
+$$;
+
+-- The helpers must stay callable after switching to an API role.
+grant usage on schema tests to public;
+grant execute on all functions in schema tests to public;

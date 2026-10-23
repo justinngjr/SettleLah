@@ -36,3 +36,38 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+  supabase:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      CI: "true"
+      SUPABASE_TELEMETRY_DISABLED: "true"
+    steps:
+      - uses: actions/checkout@v5
+
+      # Pinned to the CLI version the migrations/types were generated with.
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.122.0
+
+      # Only the services the migrations and pgTAP tests need. stdin is closed so
+      # the CLI can never wait on a prompt.
+      - name: Start Supabase
+        timeout-minutes: 8
+        run: supabase start -x studio,imgproxy,mailpit,edge-runtime,logflare,vector,realtime,storage-api,supavisor < /dev/null
+
+      - name: Apply migrations from scratch
+        run: supabase db reset
+
+      - name: Database tests (pgTAP)
+        run: supabase test db
+
+      - name: Generated types are up to date
+        run: |
+          supabase gen types typescript --local > src/server/db/database.types.ts
+          git diff --exit-code -- src/server/db/database.types.ts
+
+      - name: Stop Supabase
+        if: always()
+        run: supabase stop --no-backup

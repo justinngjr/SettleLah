@@ -6,8 +6,10 @@ export { InterpretError, type InterpretErrorCode } from "./errors";
 export { interpretReceipt, type InterpretDeps, type InterpretResult } from "./interpret";
 export {
   InterpretInputSchema,
+  InterpretRequestSchema,
   ReceiptInterpretationSchema,
   type InterpretInput,
+  type InterpretRequest,
   type Participant,
   type ReceiptInterpretation,
 } from "./schema";
