@@ -12,8 +12,9 @@ import { BankAlertsSettings, TelegramSettings } from "../_components/settings-se
 import { formatDateTime } from "../_lib/format";
 import { requireHost } from "../_lib/host";
 
-async function SettingsContent({ telegramNotice }: { telegramNotice: boolean }) {
-  const { host, db } = await requireHost("/app/settings");
+async function SettingsContent({ searchParams }: { searchParams: Promise<{ telegram?: string }> }) {
+  const [{ host, db }, params] = await Promise.all([requireHost("/app/settings"), searchParams]);
+  const telegramNotice = params.telegram === "unconfigured";
   const inbound = inboundEmailConfigFromEnv();
   const telegram = telegramConfigFromEnv();
   const [profile, route, reconcile, lastAlerts, hostProfile, chats] = await Promise.all([
@@ -58,15 +59,14 @@ async function SettingsContent({ telegramNotice }: { telegramNotice: boolean }) 
   );
 }
 
-export default async function SettingsPage({ searchParams }: { searchParams: Promise<{ telegram?: string }> }) {
-  const params = await searchParams;
+export default function SettingsPage({ searchParams }: { searchParams: Promise<{ telegram?: string }> }) {
   return (
     <div className="space-y-16">
       <PageIntro label="Settings" title="Settings">
         Your name, where friends pay you, Telegram, bank alerts, and your session.
       </PageIntro>
       <Suspense fallback={<Loading />}>
-        <SettingsContent telegramNotice={params.telegram === "unconfigured"} />
+        <SettingsContent searchParams={searchParams} />
       </Suspense>
     </div>
   );
