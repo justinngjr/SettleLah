@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { NO_CHARGES, SG_GST_ONLY, SG_STANDARD_CHARGES, type ChargePolicy } from "./charges";
 import { MoneyError } from "./money";
-import type { RemainderPolicy } from "./rounding";
+import { allocateRemainder, hostNeverAbsorbs, type RemainderCandidate, type RemainderPolicy } from "./rounding";
 import { splitReceipt, SplitError, type ExclusionRedistribution, type LineItem, type SplitInput } from "./split";
 
 const sumShares = (input: SplitInput) =>
@@ -451,5 +451,109 @@ describe("property: shares always sum to the receipt total", () => {
       }),
       { numRuns: 300 },
     );
+  });
+});
+
+describe("splitReceipt with hostNeverAbsorbs", () => {
+  const items: LineItem[] = [{ price: 101, sharedBy: ["host", "friend"] }];
+
+  it("the default policy gives the host the odd cent; hostNeverAbsorbs gives it to the friend", () => {
+    expect(amountsOf({ charges: NO_CHARGES, items })).toEqual({ host: 51, friend: 50 });
+    expect(amountsOf({ charges: NO_CHARGES, items, remainderPolicy: hostNeverAbsorbs("host") })).toEqual({
+      host: 50,
+      friend: 51,
+    });
+  });
+
+  it("host treats: falls back to the default (host pays everything)", () => {
+    const input: SplitInput = {
+      charges: SG_STANDARD_CHARGES,
+      treatedBy: "host",
+      items: [{ price: 1001, sharedBy: ["host", "a", "b"] }],
+      remainderPolicy: hostNeverAbsorbs("host"),
+    };
+    expect(amountsOf(input)).toEqual({ host: splitReceipt(input).totals.total, a: 0, b: 0 });
+  });
+
+  it("all friends excluded: falls back to the default (host pays everything)", () => {
+    const input: SplitInput = {
+      charges: SG_STANDARD_CHARGES,
+      exclusion: { participants: ["a", "b"], redistribute: "equal" },
+      items: [{ price: 1001, sharedBy: ["host", "a", "b"] }],
+      remainderPolicy: hostNeverAbsorbs("host"),
+    };
+    expect(amountsOf(input)).toEqual({ host: splitReceipt(input).totals.total, a: 0, b: 0 });
+  });
+
+  it("host not a participant: behaves like the default", () => {
+    const input: SplitInput = { charges: SG_STANDARD_CHARGES, items: [{ price: 1001, sharedBy: ["a", "b", "c"] }] };
+    expect(amountsOf({ ...input, remainderPolicy: hostNeverAbsorbs("host") })).toEqual(amountsOf(input));
+  });
+
+  it("excluded host (zero weight) never receives cents and the split still verifies", () => {
+    const input: SplitInput = {
+      charges: NO_CHARGES,
+      exclusion: { participants: ["host"], redistribute: "proportional" },
+      items: [{ price: 101, sharedBy: ["host", "a", "b"] }],
+      remainderPolicy: hostNeverAbsorbs("host"),
+    };
+    expect(amountsOf(input)).toEqual({ host: 0, a: 51, b: 50 });
+  });
+
+  describe("property: the host never receives an extra cent when any friend can absorb it", () => {
+    const participantIds = ["host", "p1", "p2", "p3", "p4", "p5"];
+    const lineItemArb = fc.record({
+      price: fc.integer({ min: 0, max: 50_000_00 }),
+      sharedBy: fc.uniqueArray(fc.constantFrom(...participantIds), { minLength: 1, maxLength: participantIds.length }),
+    });
+    const chargesArb: fc.Arbitrary<ChargePolicy> = fc.oneof(
+      fc.constant(SG_STANDARD_CHARGES),
+      fc.constant(NO_CHARGES),
+      fc.record({ serviceChargeBps: fc.integer({ min: 0, max: 2500 }), gstBps: fc.integer({ min: 0, max: 2500 }) }),
+    );
+    const inputArb = fc.record({
+      items: fc.array(lineItemArb, { minLength: 1, maxLength: 10 }),
+      charges: chargesArb,
+      exclusion: fc.option(
+        fc.record({
+          participants: fc.uniqueArray(fc.constantFrom(...participantIds.slice(1)), { maxLength: 2 }),
+          redistribute: fc.constantFrom<ExclusionRedistribution>("proportional", "equal"),
+        }),
+        { nil: undefined },
+      ),
+    });
+
+    it("host extra cents are 0, each friend gets at most 1, shares sum to total", () => {
+      fc.assert(
+        fc.property(inputArb, ({ items, charges, exclusion }) => {
+          let seen: { leftover: number; candidates: readonly RemainderCandidate[]; extras: number[] } | undefined;
+          const spy: RemainderPolicy = (leftover, candidates) => {
+            const extras = hostNeverAbsorbs("host")(leftover, candidates);
+            seen = { leftover, candidates, extras };
+            return extras;
+          };
+          const result = splitReceipt({ items, charges, exclusion, participants: participantIds, remainderPolicy: spy });
+          expect(result.shares.reduce((acc, s) => acc + s.amount, 0)).toBe(result.totals.total);
+          expect(seen).toBeDefined();
+          const { leftover, candidates, extras } = seen!;
+          const hostIndex = candidates.findIndex((c) => c.participantId === "host");
+          const friendCanAbsorb = candidates.some(
+            (c, i) => i !== hostIndex && (c.floorCents !== 0 || c.fraction.num !== BigInt(0)),
+          );
+          if (friendCanAbsorb) {
+            expect(extras[hostIndex]).toBe(0);
+            for (const extra of extras) expect(extra).toBeLessThanOrEqual(1);
+          } else {
+            expect(extras).toEqual(allocateRemainder(leftover, candidates));
+          }
+          const hostShare = result.shares.find((s) => s.participantId === "host")!;
+          const defaultHost = splitReceipt({ items, charges, exclusion, participants: participantIds }).shares.find(
+            (s) => s.participantId === "host",
+          )!;
+          expect(hostShare.amount).toBeLessThanOrEqual(defaultHost.amount);
+        }),
+        { numRuns: 500 },
+      );
+    });
   });
 });
