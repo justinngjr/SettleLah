@@ -259,17 +259,49 @@ isOneToOne: false
                   ]
                 },"recurring_expenses": {
                   Row: {
-                    "active": boolean,"amount": number,"anchor_day": number,"cadence": Database["public"]['Enums']["recurring_cadence"],"created_at": string,"gst_bps": number,"host_id": string,"id": string,"next_run_at": string | null,"participants": NonNullable<Json>,"service_charge_bps": number,"title": string,"updated_at": string
+                    "active": boolean,"amount": number,"anchor_day": number,"cadence": Database["public"]['Enums']["recurring_cadence"],"created_at": string,"gst_bps": number,"host_id": string,"id": string,"next_run_at": string | null,"participants": NonNullable<Json>,"service_charge_bps": number,"telegram_chat_id": number | null,"title": string,"updated_at": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "active"?: boolean,"amount": number,"anchor_day": number,"cadence": Database["public"]['Enums']["recurring_cadence"],"created_at"?: string,"gst_bps"?: number,"host_id": string,"id"?: string,"next_run_at"?: string | null,"participants"?: NonNullable<Json>,"service_charge_bps"?: number,"title": string,"updated_at"?: string
+                    "active"?: boolean,"amount": number,"anchor_day": number,"cadence": Database["public"]['Enums']["recurring_cadence"],"created_at"?: string,"gst_bps"?: number,"host_id": string,"id"?: string,"next_run_at"?: string | null,"participants"?: NonNullable<Json>,"service_charge_bps"?: number,"telegram_chat_id"?: number | null,"title": string,"updated_at"?: string
                   }
                   Update: {
-                    "active"?: boolean,"amount"?: number,"anchor_day"?: number,"cadence"?: Database["public"]['Enums']["recurring_cadence"],"created_at"?: string,"gst_bps"?: number,"host_id"?: string,"id"?: string,"next_run_at"?: string | null,"participants"?: NonNullable<Json>,"service_charge_bps"?: number,"title"?: string,"updated_at"?: string
+                    "active"?: boolean,"amount"?: number,"anchor_day"?: number,"cadence"?: Database["public"]['Enums']["recurring_cadence"],"created_at"?: string,"gst_bps"?: number,"host_id"?: string,"id"?: string,"next_run_at"?: string | null,"participants"?: NonNullable<Json>,"service_charge_bps"?: number,"telegram_chat_id"?: number | null,"title"?: string,"updated_at"?: string
                   }
                   Relationships: [
-                    
+                    {
+      foreignKeyName: "recurring_expenses_telegram_chat_fkey"
+      columns: ["host_id","telegram_chat_id"]
+isOneToOne: false
+      referencedRelation: "telegram_chats"
+      referencedColumns: ["host_id","telegram_chat_id"]
+    }
+                  ]
+                },"recurring_runs": {
+                  Row: {
+                    "host_id": string,"id": string,"period_key": string,"ran_at": string,"receipt_id": string | null,"recurring_expense_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "host_id": string,"id"?: string,"period_key": string,"ran_at"?: string,"receipt_id"?: string | null,"recurring_expense_id": string
+                  }
+                  Update: {
+                    "host_id"?: string,"id"?: string,"period_key"?: string,"ran_at"?: string,"receipt_id"?: string | null,"recurring_expense_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "recurring_runs_expense_fkey"
+      columns: ["recurring_expense_id","host_id"]
+isOneToOne: false
+      referencedRelation: "recurring_expenses"
+      referencedColumns: ["id","host_id"]
+    },{
+      foreignKeyName: "recurring_runs_receipt_fkey"
+      columns: ["receipt_id","host_id"]
+isOneToOne: false
+      referencedRelation: "receipts"
+      referencedColumns: ["id","host_id"]
+    }
                   ]
                 },"reminders": {
                   Row: {
@@ -376,6 +408,9 @@ isOneToOne: false
                            },
 "reject_payment_claim":
 { Args: { "p_claim_id": string }; Returns: undefined
+                           },
+"run_recurring_expense":
+{ Args: { "p_next_run_at": string,"p_period_key": string,"p_receipt": Json,"p_recurring_expense_id": string,"p_shares": Json }; Returns: string
                            },
 "save_split":
 { Args: { "p_receipt": Json,"p_shares": Json }; Returns: string
