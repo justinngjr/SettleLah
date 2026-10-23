@@ -16,42 +16,56 @@ export const ParticipantSchema = z.object({
   name: z.string().min(1),
 });
 
-/** Request body of `POST /api/interpret` and input of `interpretReceipt`. */
-export const InterpretInputSchema = z
-  .object({
-    /** Receipt photo as a base64 data URL (jpeg/png/webp, max 5 MB). */
-    image: z
-      .string()
-      .refine((url) => IMAGE_DATA_URL.test(url), {
-        message: "image must be a base64 data URL of type image/jpeg, image/png or image/webp",
-      })
-      .refine(
-        (url) => base64DecodedBytes(url.slice(url.indexOf(",") + 1)) <= MAX_IMAGE_BYTES,
-        { message: "image must be at most 5 MB" },
-      )
-      .optional(),
-    /** Already-transcribed receipt text. */
-    receiptText: z.string().trim().min(1).optional(),
-    /** The host's free-text note, e.g. "Sarah skipped the drinks". May be empty. */
-    note: z.string().max(4000),
-    participants: z
-      .array(ParticipantSchema)
-      .min(1)
-      .refine((list) => new Set(list.map((p) => p.id)).size === list.length, {
-        message: "participant ids must be unique",
-      }),
-    /** The participant who fronted the bill. Must be one of `participants`; never absorbs rounding. */
-    hostId: z.string().min(1),
-  })
-  .refine((input) => input.image !== undefined || input.receiptText !== undefined, {
-    message: "provide either image or receiptText",
-    path: ["receiptText"],
-  })
+const InterpretFields = z.object({
+  /** Receipt photo as a base64 data URL (jpeg/png/webp, max 5 MB). */
+  image: z
+    .string()
+    .refine((url) => IMAGE_DATA_URL.test(url), {
+      message: "image must be a base64 data URL of type image/jpeg, image/png or image/webp",
+    })
+    .refine(
+      (url) => base64DecodedBytes(url.slice(url.indexOf(",") + 1)) <= MAX_IMAGE_BYTES,
+      { message: "image must be at most 5 MB" },
+    )
+    .optional(),
+  /** Already-transcribed receipt text. */
+  receiptText: z.string().trim().min(1).optional(),
+  /** The host's free-text note, e.g. "Sarah skipped the drinks". May be empty. */
+  note: z.string().max(4000),
+  participants: z
+    .array(ParticipantSchema)
+    .min(1)
+    .refine((list) => new Set(list.map((p) => p.id)).size === list.length, {
+      message: "participant ids must be unique",
+    }),
+});
+
+const HAS_RECEIPT = {
+  check: (input: { image?: string; receiptText?: string }) => input.image !== undefined || input.receiptText !== undefined,
+  message: "provide either image or receiptText",
+  path: ["receiptText"],
+};
+
+/**
+ * Request body of `POST /api/interpret`. `hostId` is accepted for backwards
+ * compatibility but IGNORED: the route derives the host from the session.
+ */
+export const InterpretRequestSchema = InterpretFields.extend({
+  hostId: z.string().optional(),
+}).refine(HAS_RECEIPT.check, { message: HAS_RECEIPT.message, path: HAS_RECEIPT.path });
+
+/** Input of `interpretReceipt`: the request plus the trusted, session-derived host id. */
+export const InterpretInputSchema = InterpretFields.extend({
+  /** The participant who fronted the bill (the signed-in host's user id). Never absorbs rounding. */
+  hostId: z.string().min(1),
+})
+  .refine(HAS_RECEIPT.check, { message: HAS_RECEIPT.message, path: HAS_RECEIPT.path })
   .refine((input) => input.participants.some((p) => p.id === input.hostId), {
     message: "hostId must be one of the participant ids",
     path: ["hostId"],
   });
 
+export type InterpretRequest = z.infer<typeof InterpretRequestSchema>;
 export type InterpretInput = z.infer<typeof InterpretInputSchema>;
 export type Participant = z.infer<typeof ParticipantSchema>;
 

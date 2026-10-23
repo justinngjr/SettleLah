@@ -36,3 +36,31 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+  supabase:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      # Only the services the migrations and pgTAP tests need.
+      - name: Start Supabase
+        run: supabase start -x studio,imgproxy,mailpit,edge-runtime,logflare,vector,realtime,storage-api,supavisor
+
+      - name: Apply migrations from scratch
+        run: supabase db reset
+
+      - name: Database tests (pgTAP)
+        run: supabase test db
+
+      - name: Generated types are up to date
+        run: |
+          supabase gen types typescript --local > src/server/db/database.types.ts
+          git diff --exit-code -- src/server/db/database.types.ts
+
+      - name: Stop Supabase
+        if: always()
+        run: supabase stop --no-backup
