@@ -119,6 +119,7 @@ async function main(browser: Browser) {
   // Onboarding + empty home for a brand-new host.
   await signInAsNewHost(page2, base);
   await page2.waitForURL(/onboarding/);
+  await page2.getByLabel(/your display name/i).waitFor();
   for (const scheme of ["light", "dark"] as const) {
     await page2.emulateMedia({ colorScheme: scheme });
     for (const width of [390, 1280]) {
