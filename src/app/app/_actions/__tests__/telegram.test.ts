@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const HOST = "host-1";
 
-const TelegramNotConfiguredError = vi.hoisted(() => class TelegramNotConfiguredError extends Error {})();
+const { TelegramNotConfiguredError } = vi.hoisted(() => ({ TelegramNotConfiguredError: class TelegramNotConfiguredError extends Error {} }));
 
 const mocks = vi.hoisted(() => ({
   requireHost: vi.fn(),

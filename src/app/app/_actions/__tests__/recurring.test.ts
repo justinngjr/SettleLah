@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const HOST = "host-1";
 const db = { tag: "db" };
 
-const RecurringInputError = vi.hoisted(() => class RecurringInputError extends Error {})();
+const { RecurringInputError } = vi.hoisted(() => ({ RecurringInputError: class RecurringInputError extends Error {} }));
 
 const mocks = vi.hoisted(() => ({
   requireHost: vi.fn(),
