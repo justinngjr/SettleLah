@@ -12,6 +12,10 @@ floating-point arithmetic on money anywhere in this directory.
 | `rounding.ts` | `allocateRemainder` (default) and `hostNeverAbsorbs(hostId)`: the single place that decides who gets leftover cents |
 | `balances.ts` | Host ↔ friend ledger: shares, payments, credit, friend-fronted           |
 | `rational.ts` | Internal exact `bigint` rationals used by `split.ts`                     |
+| `paynow.ts`   | SGQR/EMVCo PayNow QR payload string (TLV, CRC-16/CCITT-FALSE), `parseTlv` |
+| `reminders.ts`| Polite reminder schedule: stages, SGT quiet hours, snooze, host escalation, copy |
+| `recurring.ts`| Recurring shared expenses: `nextRunAt` (SGT 09:00), weighted `recurringCharge`, top-ups |
+| `sgt.ts`      | Asia/Singapore (UTC+8, no DST) wall-clock helpers; no system clock reads |
 
 ## The rule
 
