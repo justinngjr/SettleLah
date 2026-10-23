@@ -85,24 +85,31 @@ test("recurring expense → cron run → friend's balance appears", async ({ pag
 
   // ...until the schedule is in the past. The friend's share then lands on their balance.
   await page.getByRole("link", { name: /Netflix/ }).click();
+  await page.waitForURL(/\/app\/recurring\/[0-9a-f-]{36}$/);
   const id = page.url().split("/").pop()!;
   const { createClient } = await import("@supabase/supabase-js");
   const admin = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321", process.env.SUPABASE_SERVICE_ROLE_KEY!, {
     auth: { persistSession: false },
   });
-  const backdated = await admin.from("recurring_expenses").update({ next_run_at: "2026-01-01T01:00:00Z" }).eq("id", id);
+  // The most recent 1st-of-month 09:00 SGT (01:00Z) that is already past, so the run after this one has nothing due.
+  const now = new Date();
+  let scheduled = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 1));
+  if (scheduled > now) scheduled = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1, 1));
+  const periodKey = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Singapore", year: "numeric", month: "2-digit" }).format(scheduled);
+  const backdated = await admin.from("recurring_expenses").update({ next_run_at: scheduled.toISOString() }).eq("id", id);
   expect(backdated.error).toBeNull();
 
   const run = await request.get("/api/cron/recurring", { headers: { authorization: `Bearer ${secret}` } });
   expect(run.ok()).toBeTruthy();
-  const summary = (await run.json()) as { charged: number; alreadyRan: number };
-  expect(summary.charged).toBe(1);
+  // The runner spans every host (other e2e hosts may have due expenses too), so look at this expense only.
+  type Summary = { results: { recurringExpenseId: string; status: string }[] };
+  const mine = (summary: Summary) => summary.results.filter((r) => r.recurringExpenseId === id);
+  expect(mine((await run.json()) as Summary)).toEqual([expect.objectContaining({ status: "charged" })]);
   const again = await request.get("/api/cron/recurring", { headers: { authorization: `Bearer ${secret}` } });
-  const second = (await again.json()) as { charged: number };
-  expect(second.charged).toBe(0);
+  expect(mine((await again.json()) as Summary)).toEqual([]);
 
   await page.goto("/app");
   await expect(page.getByText("$8.95").first()).toBeVisible();
   await page.goto(`/app/recurring/${id}`);
-  await expect(page.getByText("2026-01")).toBeVisible();
+  await expect(page.getByText(periodKey)).toBeVisible();
 });
