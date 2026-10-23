@@ -155,14 +155,14 @@ isOneToOne: false
                   ]
                 },"payment_requests": {
                   Row: {
-                    "amount": number,"cancelled_at": string | null,"created_at": string,"friend_id": string,"host_id": string,"id": string,"note": string | null,"paid_at": string | null,"reference": string,"status": Database["public"]['Enums']["payment_request_status"]
+                    "amount": number,"cancelled_at": string | null,"created_at": string,"friend_id": string,"host_id": string,"id": string,"note": string | null,"paid_at": string | null,"receipt_id": string | null,"reference": string,"status": Database["public"]['Enums']["payment_request_status"]
                   }
                   ComputedFields: never
                   Insert: {
-                    "amount": number,"cancelled_at"?: string | null,"created_at"?: string,"friend_id": string,"host_id": string,"id"?: string,"note"?: string | null,"paid_at"?: string | null,"reference": string,"status"?: Database["public"]['Enums']["payment_request_status"]
+                    "amount": number,"cancelled_at"?: string | null,"created_at"?: string,"friend_id": string,"host_id": string,"id"?: string,"note"?: string | null,"paid_at"?: string | null,"receipt_id"?: string | null,"reference": string,"status"?: Database["public"]['Enums']["payment_request_status"]
                   }
                   Update: {
-                    "amount"?: number,"cancelled_at"?: string | null,"created_at"?: string,"friend_id"?: string,"host_id"?: string,"id"?: string,"note"?: string | null,"paid_at"?: string | null,"reference"?: string,"status"?: Database["public"]['Enums']["payment_request_status"]
+                    "amount"?: number,"cancelled_at"?: string | null,"created_at"?: string,"friend_id"?: string,"host_id"?: string,"id"?: string,"note"?: string | null,"paid_at"?: string | null,"receipt_id"?: string | null,"reference"?: string,"status"?: Database["public"]['Enums']["payment_request_status"]
                   }
                   Relationships: [
                     {
@@ -177,18 +177,24 @@ isOneToOne: false
 isOneToOne: false
       referencedRelation: "friends"
       referencedColumns: ["id","host_id"]
+    },{
+      foreignKeyName: "payment_requests_receipt_fkey"
+      columns: ["receipt_id","host_id"]
+isOneToOne: false
+      referencedRelation: "receipts"
+      referencedColumns: ["id","host_id"]
     }
                   ]
                 },"profiles": {
                   Row: {
-                    "auto_confirm_bank_alerts": boolean,"created_at": string,"display_name": string | null,"id": string,"paynow_display_name": string | null,"paynow_proxy_type": Database["public"]['Enums']["paynow_proxy_type"] | null,"paynow_proxy_value": string | null,"updated_at": string
+                    "auto_confirm_bank_alerts": boolean,"created_at": string,"display_name": string | null,"id": string,"paynow_display_name": string | null,"paynow_proxy_type": Database["public"]['Enums']["paynow_proxy_type"] | null,"paynow_proxy_value": string | null,"telegram_user_id": number | null,"telegram_username": string | null,"updated_at": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "auto_confirm_bank_alerts"?: boolean,"created_at"?: string,"display_name"?: string | null,"id": string,"paynow_display_name"?: string | null,"paynow_proxy_type"?: Database["public"]['Enums']["paynow_proxy_type"] | null,"paynow_proxy_value"?: string | null,"updated_at"?: string
+                    "auto_confirm_bank_alerts"?: boolean,"created_at"?: string,"display_name"?: string | null,"id": string,"paynow_display_name"?: string | null,"paynow_proxy_type"?: Database["public"]['Enums']["paynow_proxy_type"] | null,"paynow_proxy_value"?: string | null,"telegram_user_id"?: number | null,"telegram_username"?: string | null,"updated_at"?: string
                   }
                   Update: {
-                    "auto_confirm_bank_alerts"?: boolean,"created_at"?: string,"display_name"?: string | null,"id"?: string,"paynow_display_name"?: string | null,"paynow_proxy_type"?: Database["public"]['Enums']["paynow_proxy_type"] | null,"paynow_proxy_value"?: string | null,"updated_at"?: string
+                    "auto_confirm_bank_alerts"?: boolean,"created_at"?: string,"display_name"?: string | null,"id"?: string,"paynow_display_name"?: string | null,"paynow_proxy_type"?: Database["public"]['Enums']["paynow_proxy_type"] | null,"paynow_proxy_value"?: string | null,"telegram_user_id"?: number | null,"telegram_username"?: string | null,"updated_at"?: string
                   }
                   Relationships: [
                     
@@ -267,14 +273,14 @@ isOneToOne: false
                   ]
                 },"reminders": {
                   Row: {
-                    "channel": Database["public"]['Enums']["reminder_channel"],"host_id": string,"id": string,"last_sent_at": string | null,"next_at": string,"payment_request_id": string,"snoozed_until": string | null,"stage": number
+                    "channel": Database["public"]['Enums']["reminder_channel"],"escalated_at": string | null,"host_id": string,"id": string,"last_sent_at": string | null,"next_at": string,"payment_request_id": string,"snoozed_until": string | null,"stage": number
                   }
                   ComputedFields: never
                   Insert: {
-                    "channel"?: Database["public"]['Enums']["reminder_channel"],"host_id": string,"id"?: string,"last_sent_at"?: string | null,"next_at": string,"payment_request_id": string,"snoozed_until"?: string | null,"stage"?: number
+                    "channel"?: Database["public"]['Enums']["reminder_channel"],"escalated_at"?: string | null,"host_id": string,"id"?: string,"last_sent_at"?: string | null,"next_at": string,"payment_request_id": string,"snoozed_until"?: string | null,"stage"?: number
                   }
                   Update: {
-                    "channel"?: Database["public"]['Enums']["reminder_channel"],"host_id"?: string,"id"?: string,"last_sent_at"?: string | null,"next_at"?: string,"payment_request_id"?: string,"snoozed_until"?: string | null,"stage"?: number
+                    "channel"?: Database["public"]['Enums']["reminder_channel"],"escalated_at"?: string | null,"host_id"?: string,"id"?: string,"last_sent_at"?: string | null,"next_at"?: string,"payment_request_id"?: string,"snoozed_until"?: string | null,"stage"?: number
                   }
                   Relationships: [
                     {
@@ -282,6 +288,32 @@ isOneToOne: false
       columns: ["payment_request_id","host_id"]
 isOneToOne: false
       referencedRelation: "payment_requests"
+      referencedColumns: ["id","host_id"]
+    }
+                  ]
+                },"telegram_binding_requests": {
+                  Row: {
+                    "created_at": string,"friend_id": string,"host_id": string,"host_message_id": number | null,"id": string,"resolved_at": string | null,"source_chat_id": number | null,"status": Database["public"]['Enums']["telegram_binding_status"],"telegram_first_name": string | null,"telegram_user_id": number,"telegram_username": string | null,"via_private_chat": boolean
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"friend_id": string,"host_id": string,"host_message_id"?: number | null,"id"?: string,"resolved_at"?: string | null,"source_chat_id"?: number | null,"status"?: Database["public"]['Enums']["telegram_binding_status"],"telegram_first_name"?: string | null,"telegram_user_id": number,"telegram_username"?: string | null,"via_private_chat"?: boolean
+                  }
+                  Update: {
+                    "created_at"?: string,"friend_id"?: string,"host_id"?: string,"host_message_id"?: number | null,"id"?: string,"resolved_at"?: string | null,"source_chat_id"?: number | null,"status"?: Database["public"]['Enums']["telegram_binding_status"],"telegram_first_name"?: string | null,"telegram_user_id"?: number,"telegram_username"?: string | null,"via_private_chat"?: boolean
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "telegram_binding_requests_friend_fkey"
+      columns: ["friend_id","host_id"]
+isOneToOne: false
+      referencedRelation: "friend_balances"
+      referencedColumns: ["friend_id","host_id"]
+    },{
+      foreignKeyName: "telegram_binding_requests_friend_fkey"
+      columns: ["friend_id","host_id"]
+isOneToOne: false
+      referencedRelation: "friends"
       referencedColumns: ["id","host_id"]
     }
                   ]
@@ -298,6 +330,26 @@ isOneToOne: false
                   }
                   Relationships: [
                     
+                  ]
+                },"telegram_link_tokens": {
+                  Row: {
+                    "created_at": string,"expires_at": string,"host_id": string,"id": string,"kind": Database["public"]['Enums']["telegram_link_kind"],"receipt_id": string | null,"single_use": boolean,"token_hash": string,"used_at": string | null
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"expires_at": string,"host_id": string,"id"?: string,"kind": Database["public"]['Enums']["telegram_link_kind"],"receipt_id"?: string | null,"single_use"?: boolean,"token_hash": string,"used_at"?: string | null
+                  }
+                  Update: {
+                    "created_at"?: string,"expires_at"?: string,"host_id"?: string,"id"?: string,"kind"?: Database["public"]['Enums']["telegram_link_kind"],"receipt_id"?: string | null,"single_use"?: boolean,"token_hash"?: string,"used_at"?: string | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "telegram_link_tokens_receipt_fkey"
+      columns: ["receipt_id","host_id"]
+isOneToOne: false
+      referencedRelation: "receipts"
+      referencedColumns: ["id","host_id"]
+    }
                   ]
                 }
           }
@@ -330,7 +382,7 @@ isOneToOne: false
                            }
           }
           Enums: {
-            "actor_type": "host"|"system","bank_alert_status": "unmatched"|"proposed"|"confirmed"|"ignored","ledger_event_type": "expense_share"|"payment"|"credit"|"friend_fronted","payment_claim_source": "friend_button"|"bank_alert","payment_claim_status": "pending"|"confirmed"|"rejected","payment_request_status": "open"|"paid"|"cancelled","paynow_proxy_type": "mobile"|"uen","receipt_source": "manual"|"llm","recurring_cadence": "monthly"|"weekly","reminder_channel": "group"|"private"
+            "actor_type": "host"|"system","bank_alert_status": "unmatched"|"proposed"|"confirmed"|"ignored","ledger_event_type": "expense_share"|"payment"|"credit"|"friend_fronted","payment_claim_source": "friend_button"|"bank_alert","payment_claim_status": "pending"|"confirmed"|"rejected","payment_request_status": "open"|"paid"|"cancelled","paynow_proxy_type": "mobile"|"uen","receipt_source": "manual"|"llm","recurring_cadence": "monthly"|"weekly","reminder_channel": "group"|"private","telegram_binding_status": "pending"|"approved"|"rejected","telegram_link_kind": "host"|"group"|"friend"
           }
           CompositeTypes: {
             [_ in never]: never
@@ -450,7 +502,7 @@ export const Constants = {
           }
         },"public": {
           Enums: {
-            "actor_type": ["host", "system"],"bank_alert_status": ["unmatched", "proposed", "confirmed", "ignored"],"ledger_event_type": ["expense_share", "payment", "credit", "friend_fronted"],"payment_claim_source": ["friend_button", "bank_alert"],"payment_claim_status": ["pending", "confirmed", "rejected"],"payment_request_status": ["open", "paid", "cancelled"],"paynow_proxy_type": ["mobile", "uen"],"receipt_source": ["manual", "llm"],"recurring_cadence": ["monthly", "weekly"],"reminder_channel": ["group", "private"]
+            "actor_type": ["host", "system"],"bank_alert_status": ["unmatched", "proposed", "confirmed", "ignored"],"ledger_event_type": ["expense_share", "payment", "credit", "friend_fronted"],"payment_claim_source": ["friend_button", "bank_alert"],"payment_claim_status": ["pending", "confirmed", "rejected"],"payment_request_status": ["open", "paid", "cancelled"],"paynow_proxy_type": ["mobile", "uen"],"receipt_source": ["manual", "llm"],"recurring_cadence": ["monthly", "weekly"],"reminder_channel": ["group", "private"],"telegram_binding_status": ["pending", "approved", "rejected"],"telegram_link_kind": ["host", "group", "friend"]
           }
         }
 } as const

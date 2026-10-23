@@ -26,6 +26,7 @@ export function requestRow(overrides: Partial<Tables<"payment_requests">> = {}):
     created_at: "2026-01-01T00:00:00Z",
     paid_at: null,
     cancelled_at: null,
+    receipt_id: null,
     ...overrides,
   };
 }
