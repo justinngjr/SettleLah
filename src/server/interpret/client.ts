@@ -1,14 +1,33 @@
 import "server-only";
 
 import OpenAI, { APIError } from "openai";
-import type { ChatCompletionContentPart, ChatCompletionMessageParam } from "openai/resources/chat/completions";
+import type {
+  ChatCompletionContentPart,
+  ChatCompletionMessageParam,
+  ChatCompletionTool,
+} from "openai/resources/chat/completions";
 
 export type LlmUserContent = { type: "text"; text: string } | { type: "image"; dataUrl: string };
 
+/** A function call the model asked for. `arguments` is the raw JSON string; callers parse and validate it. */
+export interface LlmToolCall {
+  readonly id: string;
+  readonly name: string;
+  readonly arguments: string;
+}
+
+/** An OpenAI-style function tool: JSON Schema for the arguments, nothing executable. */
+export interface LlmToolDefinition {
+  readonly name: string;
+  readonly description: string;
+  readonly parameters: Record<string, unknown>;
+}
+
 export type LlmMessage =
   | { role: "system"; content: string }
-  | { role: "assistant"; content: string }
-  | { role: "user"; content: LlmUserContent[] };
+  | { role: "assistant"; content: string; toolCalls?: readonly LlmToolCall[] }
+  | { role: "user"; content: LlmUserContent[] }
+  | { role: "tool"; toolCallId: string; content: string };
 
 /**
  * How we ask for structured output, in order of preference. `interpretReceipt`
@@ -23,14 +42,18 @@ export interface LlmRequest {
   readonly model: string;
   readonly messages: readonly LlmMessage[];
   readonly responseFormat: LlmResponseFormat;
+  /** Native function tools (the agent loop). Omitted by `interpretReceipt`, whose behaviour is unchanged. */
+  readonly tools?: readonly LlmToolDefinition[];
 }
 
 export interface LlmCompletion {
-  /** The assistant message text (expected to be JSON). */
+  /** The assistant message text (JSON for `interpretReceipt`; may be empty when the model only called tools). */
   readonly text: string;
+  /** Native tool calls, when `tools` were offered and the model used them. */
+  readonly toolCalls?: readonly LlmToolCall[];
 }
 
-/** The only thing `interpretReceipt` needs from a model. Tests inject fakes. */
+/** The only thing `interpretReceipt` and the agent loop need from a model. Tests inject fakes. */
 export interface LlmCaller {
   /** Identifies the provider, e.g. its base URL; used to remember which response formats each model accepts. */
   readonly baseURL?: string;
@@ -94,8 +117,30 @@ function toOpenAiMessages(messages: readonly LlmMessage[]): ChatCompletionMessag
       });
       return { role: "user", content };
     }
+    if (message.role === "tool") {
+      return { role: "tool", tool_call_id: message.toolCallId, content: message.content };
+    }
+    if (message.role === "assistant" && message.toolCalls && message.toolCalls.length > 0) {
+      return {
+        role: "assistant",
+        content: message.content.length > 0 ? message.content : null,
+        tool_calls: message.toolCalls.map((call) => ({
+          id: call.id,
+          type: "function" as const,
+          function: { name: call.name, arguments: call.arguments },
+        })),
+      };
+    }
     return { role: message.role, content: message.content };
   });
+}
+
+function toOpenAiTools(tools: readonly LlmToolDefinition[] | undefined): ChatCompletionTool[] | undefined {
+  if (tools === undefined || tools.length === 0) return undefined;
+  return tools.map((tool) => ({
+    type: "function" as const,
+    function: { name: tool.name, description: tool.description, parameters: tool.parameters },
+  }));
 }
 
 function toOpenAiResponseFormat(format: LlmResponseFormat) {
@@ -128,17 +173,23 @@ export function createOpenAiCaller(
     baseURL: config.baseURL,
     async complete(request) {
       try {
+        const tools = toOpenAiTools(request.tools);
         const completion = await client.chat.completions.create({
           model: request.model,
           messages: toOpenAiMessages(request.messages),
           response_format: toOpenAiResponseFormat(request.responseFormat),
           temperature: 0,
+          ...(tools ? { tools, tool_choice: "auto" as const } : {}),
         });
-        const text = completion.choices[0]?.message.content;
-        if (typeof text !== "string" || text.length === 0) {
+        const message = completion.choices[0]?.message;
+        const text = typeof message?.content === "string" ? message.content : "";
+        const toolCalls: LlmToolCall[] = (message?.tool_calls ?? []).flatMap((call) =>
+          call.type === "function" ? [{ id: call.id, name: call.function.name, arguments: call.function.arguments }] : [],
+        );
+        if (text.length === 0 && toolCalls.length === 0) {
           throw new LlmRequestError("LLM returned an empty response");
         }
-        return { text };
+        return tools ? { text, toolCalls } : { text };
       } catch (error) {
         if (error instanceof LlmRequestError) throw error;
         if (error instanceof APIError) {
