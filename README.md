@@ -30,6 +30,10 @@ Copy `.env.example` to `.env.local` and set:
 | ------------------------------- | --------------------------------- |
 | `NEXT_PUBLIC_SUPABASE_URL`      | Supabase project URL              |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon (public) API key    |
+| `LLM_BASE_URL`                  | OpenAI-compatible API root for receipt interpretation (server-only) |
+| `LLM_API_KEY`                   | API key for that provider (server-only) |
+| `LLM_MODEL`                     | Primary model name (server-only) |
+| `LLM_FALLBACK_MODEL`            | Optional second model tried once if the primary fails (server-only) |
 
 `.env*.local` files are gitignored. The app builds without real values; they
 are only required at runtime when a Supabase client is created.
@@ -60,6 +64,7 @@ typecheck, test and build on every push and pull request.
 src/
   app/            Next.js App Router routes and layouts
   domain/         Pure TypeScript business logic (see rule below)
+  server/         Server-only modules (e.g. interpret/: LLM receipt interpretation)
   lib/supabase/   Supabase client helpers (browser + server)
 supabase/
   config.toml     Supabase CLI config
