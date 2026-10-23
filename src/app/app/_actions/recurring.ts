@@ -14,7 +14,9 @@ export interface RecurringFormState {
 }
 
 function readInt(value: FormDataEntryValue | null, fallback: number): number {
-  const n = Number(String(value ?? ""));
+  const text = String(value ?? "").trim();
+  if (text === "") return fallback;
+  const n = Number(text);
   return Number.isSafeInteger(n) ? n : fallback;
 }
 
