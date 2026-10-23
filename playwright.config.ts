@@ -14,9 +14,13 @@ if (existsSync(".env.local")) {
  * Smoke tests against a local Supabase (`supabase start`) and the Next dev
  * server. Run with `pnpm e2e`; the host is signed in through the Supabase
  * admin API (see e2e/auth.ts), so no mailbox is needed.
+ *
+ * `pnpm screenshots` (SCREENSHOTS=1) runs only e2e/screenshots.spec.ts, which
+ * captures every screen for design review instead of asserting anything.
  */
 export default defineConfig({
   testDir: "./e2e",
+  testMatch: process.env.SCREENSHOTS ? /screenshots\.spec\.ts$/ : /smoke\.spec\.ts$/,
   timeout: 60_000,
   fullyParallel: false,
   workers: 1,

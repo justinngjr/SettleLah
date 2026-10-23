@@ -1,17 +1,18 @@
 /**
  * Not a smoke test: captures every main screen at 390/1280px in light and dark
- * for review. Opt in with `SCREENSHOTS=1 pnpm e2e e2e/screenshots.spec.ts`.
+ * for design review. Run with `pnpm screenshots` (needs local Supabase and
+ * `.env.local`, like the smoke test); output goes to SCREENSHOT_DIR
+ * (default test-results/screens, git-ignored).
  */
 import { test, type Browser } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 
 import { signInAsNewHost } from "./auth";
 
-test.skip(!process.env.SCREENSHOTS, "set SCREENSHOTS=1 to capture screenshots");
 test.setTimeout(240_000);
 
 const base = process.env.E2E_BASE_URL ?? "http://localhost:3000";
-const out = process.env.SCREENSHOT_DIR ?? "/home/ubuntu/screens";
+const out = process.env.SCREENSHOT_DIR ?? "test-results/screens";
 mkdirSync(out, { recursive: true });
 
 async function main(browser: Browser) {

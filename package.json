@@ -14,7 +14,8 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "e2e": "playwright test"
+    "e2e": "playwright test",
+    "screenshots": "SCREENSHOTS=1 playwright test"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
