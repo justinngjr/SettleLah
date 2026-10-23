@@ -7,15 +7,20 @@ sessions).
 ## The rule
 
 Code in `src/domain/` must be framework- and infrastructure-agnostic. It
-**must not** import from:
+**must not** import anything outside `src/domain` — only other files in
+`src/domain` (relative or via `@/domain/*`) and pure third-party libraries
+are allowed. In particular, this forbids:
 
 - `next` or `next/*`
 - `react` or `react-dom`
 - `@supabase/*`
-- anything under `src/app` (including via the `@/app` alias)
+- anything else under `src/` (e.g. `src/app`, `src/lib`), whether reached
+  via the `@/` alias or a relative path like `../lib/...`
 
 The Telegram bot will reuse this code outside of Next.js, so it must run in
 plain Node without any web framework present.
 
-This rule is enforced by an ESLint `no-restricted-imports` rule scoped to
-`src/domain/**` in `eslint.config.mjs`; `pnpm lint` fails on violations.
+This rule is enforced in `eslint.config.mjs`, scoped to `src/domain/**`, by
+`no-restricted-imports` (package bans and the `@/` alias) and
+`import/no-restricted-paths` (relative imports escaping `src/domain`);
+`pnpm lint` fails on violations.

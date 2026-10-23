@@ -7,7 +7,8 @@ const eslintConfig = defineConfig([
   ...nextTs,
   {
     // Domain boundary: src/domain must stay pure TypeScript so the Telegram
-    // bot can reuse it outside Next.js. See src/domain/README.md.
+    // bot can reuse it outside Next.js. Nothing outside src/domain may be
+    // imported (directly or via the @/ alias). See src/domain/README.md.
     files: ["src/domain/**"],
     rules: {
       "no-restricted-imports": [
@@ -22,7 +23,23 @@ const eslintConfig = defineConfig([
             { group: ["next/*"], message: "src/domain must not depend on Next.js." },
             { group: ["react/*", "react-dom/*"], message: "src/domain must not depend on React." },
             { group: ["@supabase/*"], message: "src/domain must not depend on Supabase." },
-            { group: ["@/app", "@/app/*", "**/src/app", "**/src/app/*", "**/app/*", "../app", "../app/*"], message: "src/domain must not import from src/app." },
+            {
+              group: ["@/**", "!@/domain", "!@/domain/**"],
+              message: "src/domain must not import anything outside src/domain.",
+            },
+          ],
+        },
+      ],
+      "import/no-restricted-paths": [
+        "error",
+        {
+          zones: [
+            {
+              target: "./src/domain",
+              from: "./src",
+              except: ["./domain"],
+              message: "src/domain must not import anything outside src/domain.",
+            },
           ],
         },
       ],
