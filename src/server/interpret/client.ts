@@ -32,6 +32,8 @@ export interface LlmCompletion {
 
 /** The only thing `interpretReceipt` needs from a model. Tests inject fakes. */
 export interface LlmCaller {
+  /** Identifies the provider, e.g. its base URL; used to remember which response formats each model accepts. */
+  readonly baseURL?: string;
   complete(request: LlmRequest): Promise<LlmCompletion>;
 }
 
@@ -123,6 +125,7 @@ export function createOpenAiCaller(
   });
 
   return {
+    baseURL: config.baseURL,
     async complete(request) {
       try {
         const completion = await client.chat.completions.create({

@@ -4,8 +4,8 @@ import type { LlmMessage, LlmUserContent } from "./client";
 import type { InterpretInput, Participant } from "./schema";
 import { receiptInterpretationJsonSchema } from "./schema";
 
-export function buildSystemPrompt(participants: readonly Participant[]): string {
-  const roster = participants.map((p) => `- id "${p.id}": ${p.name}`).join("\n");
+export function buildSystemPrompt(participants: readonly Participant[], hostId: string): string {
+  const roster = participants.map((p) => `- id "${p.id}": ${p.name}${p.id === hostId ? " (the host)" : ""}`).join("\n");
   const schema = JSON.stringify(receiptInterpretationJsonSchema(participants.map((p) => p.id)));
 
   return `You are the receipt interpreter for SettleLah, a Singapore bill-splitting app.
@@ -39,8 +39,7 @@ and the printed subtotal/total copied verbatim for cross-checking.
 ## Participants
 Use ONLY these ids (never names) in sharedBy, weights, exclusion.participants and treatedBy:
 ${roster}
-The host is usually one of them. "I"/"me"/"my" in the note refers to the host; if you cannot tell which participant
-is the host, add a question.
+The host (id "${hostId}") paid the bill and wrote the note: "I"/"me"/"my"/"mine" in the note refer to the host.
 
 ## Mapping the note
 - Default: every item is shared equally by all participants.
@@ -67,7 +66,7 @@ ${schema}`;
 export function buildUserContent(input: InterpretInput): LlmUserContent[] {
   const parts: LlmUserContent[] = [];
   const lines = [
-    `Participants: ${input.participants.map((p) => `${p.name} (id "${p.id}")`).join(", ")}.`,
+    `Participants: ${input.participants.map((p) => `${p.name} (id "${p.id}")`).join(", ")}. Host: id "${input.hostId}".`,
     `Host's note: ${input.note.trim().length > 0 ? JSON.stringify(input.note) : "(none)"}`,
   ];
   if (input.receiptText !== undefined) {
@@ -85,7 +84,7 @@ export function buildUserContent(input: InterpretInput): LlmUserContent[] {
 
 export function buildMessages(input: InterpretInput): LlmMessage[] {
   return [
-    { role: "system", content: buildSystemPrompt(input.participants) },
+    { role: "system", content: buildSystemPrompt(input.participants, input.hostId) },
     { role: "user", content: buildUserContent(input) },
   ];
 }

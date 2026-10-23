@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
-import { NO_CHARGES, SG_GST_ONLY, SG_STANDARD_CHARGES } from "@/domain";
+import { allocateRemainder, NO_CHARGES, SG_GST_ONLY, SG_STANDARD_CHARGES, splitReceipt } from "@/domain";
 
 import { LlmRequestError } from "./client";
 import { InterpretError } from "./errors";
@@ -10,15 +10,29 @@ import {
   DINNER_INTERPRETATION,
   DINNER_TOTALS,
   lastUserText,
+  LIVE_INPUT,
+  LIVE_INTERPRETATION,
   PARTICIPANTS,
   reply,
   scriptedLlm,
   type Step,
 } from "./fixtures.test-helpers";
-import { extractJson, interpretReceipt, toChargePolicy, validateOutput } from "./interpret";
+import {
+  extractJson,
+  interpretReceipt,
+  knownResponseFormat,
+  resetResponseFormatCache,
+  stripReasoning,
+  toChargePolicy,
+  validateOutput,
+} from "./interpret";
 
 const DEPS = { model: "primary" };
 const WITH_FALLBACK = { model: "primary", fallbackModel: "backup" };
+
+beforeEach(() => {
+  resetResponseFormatCache();
+});
 
 const throwing =
   (status?: number): Step =>
@@ -125,7 +139,7 @@ describe("interpretReceipt: happy paths", () => {
   it("accepts a receipt image instead of text and forwards it as an image part", async () => {
     const image = `data:image/png;base64,${Buffer.from("not really a png").toString("base64")}`;
     const { llm, requests } = scriptedLlm([reply(DINNER_INTERPRETATION)]);
-    await interpretReceipt({ image, note: "", participants: [...PARTICIPANTS] }, { llm, ...DEPS });
+    await interpretReceipt({ image, note: "", participants: [...PARTICIPANTS], hostId: "alice" }, { llm, ...DEPS });
     const user = requests[0].messages[1];
     expect(user.role).toBe("user");
     if (user.role !== "user") throw new Error("unreachable");
@@ -141,6 +155,120 @@ describe("interpretReceipt: happy paths", () => {
     const result = await interpretReceipt(DINNER_INPUT, { llm, ...DEPS });
     expect(result.warnings).toEqual([expect.stringContaining("Mei is not on any item")]);
     expect(result.split.shares.find((s) => s.participantId === "mei")?.amount).toBe(0);
+  });
+});
+
+describe("interpretReceipt: host-aware rounding (live smoke-test case)", () => {
+  /**
+   * Independent derivation, in cents. Items: Chicken Rice 1200 + Laksa 750 shared
+   * by all 5 (390 each); Crab 3600 by alex+dan (1800 each); Kopi 690 + Lime 560
+   * by alex, ben, chloe, dan (312.5 each). Subtotal 6800 -> SC 680 -> GST
+   * round(0.09 * 7480 = 673.2) = 673 -> total 8153.
+   * Own subtotals: alex 2502.5, ben 702.5, chloe 702.5, dan 2502.5, sarah 390.
+   * Ben excluded with "equal": his 702.5 is split 175.625 to each of the 4 payers,
+   * giving weights alex 2678.125, chloe 878.125, dan 2678.125, sarah 565.625
+   * (x8 to stay integral: 21425, 7025, 21425, 4525; sum 54400).
+   */
+  const WEIGHTS_X8 = { alex: BigInt(21425), ben: BigInt(0), chloe: BigInt(7025), dan: BigInt(21425), sarah: BigInt(4525) };
+  const WEIGHT_SUM_X8 = BigInt(54400);
+  const TOTAL = BigInt(8153);
+  const floorShare = (id: keyof typeof WEIGHTS_X8) => Number((TOTAL * WEIGHTS_X8[id]) / WEIGHT_SUM_X8);
+
+  it("gives every leftover cent to friends, never the host, and matches the hand-derived shares", async () => {
+    const { llm } = scriptedLlm([reply(LIVE_INTERPRETATION)]);
+    const result = await interpretReceipt(LIVE_INPUT, { llm, ...DEPS });
+
+    expect(result.split.totals).toEqual({ subtotal: 6800, serviceCharge: 680, gst: 673, total: 8153 });
+    expect(result.warnings).toEqual([]);
+
+    const amounts = Object.fromEntries(result.split.shares.map((s) => [s.participantId, s.amount]));
+    // Floors: alex 3210, chloe 1052, dan 3210, sarah 678 -> 8150, so 3 cents are left over.
+    expect([floorShare("alex"), floorShare("chloe"), floorShare("dan"), floorShare("sarah")]).toEqual([3210, 1052, 3210, 678]);
+    expect(amounts.alex).toBe(floorShare("alex")); // the host gets no extra cent
+    expect(amounts.dan).toBe(floorShare("dan") + 1);
+    expect(amounts.chloe).toBe(floorShare("chloe") + 1);
+    expect(amounts.sarah).toBe(floorShare("sarah") + 1);
+    expect(amounts).toEqual({ alex: 3210, ben: 0, chloe: 1053, dan: 3211, sarah: 679 });
+    expect(Object.values(amounts).reduce((a, b) => a + b, 0)).toBe(8153);
+
+    // The default largest-remainder policy would have made the host absorb a cent instead of Sarah.
+    const byDefault = splitReceipt({ ...result.splitInput, remainderPolicy: allocateRemainder });
+    const defaults = Object.fromEntries(byDefault.shares.map((s) => [s.participantId, s.amount]));
+    expect(defaults).toEqual({ alex: 3211, ben: 0, chloe: 1053, dan: 3211, sarah: 678 });
+  });
+
+  it("uses the request's hostId for the remainder policy", async () => {
+    const { llm } = scriptedLlm([reply(LIVE_INTERPRETATION)]);
+    const result = await interpretReceipt({ ...LIVE_INPUT, hostId: "dan" }, { llm, ...DEPS });
+    const amounts = Object.fromEntries(result.split.shares.map((s) => [s.participantId, s.amount]));
+    expect(amounts).toEqual({ alex: 3211, ben: 0, chloe: 1053, dan: 3210, sarah: 679 });
+  });
+});
+
+describe("interpretReceipt: reasoning blocks", () => {
+  const json = JSON.stringify(DINNER_INTERPRETATION);
+
+  it("ignores a <think>…</think> block whose text contains braces", async () => {
+    const text = `<think>The note says {Sarah skipped} drinks... so sharedBy = {alice, ben}. Let me output } now.</think>\n${json}`;
+    const { llm } = scriptedLlm([reply(text)]);
+    const result = await interpretReceipt(DINNER_INPUT, { llm, ...DEPS });
+    expect(result.llm.attempts).toBe(1);
+    expect(result.split.totals).toEqual(DINNER_TOTALS);
+  });
+
+  it("handles an unterminated leading <think> by skipping to the first { after it", async () => {
+    const text = `<think>Thinking about drinks and crab, no braces here\n${json}`;
+    const { llm } = scriptedLlm([reply(text)]);
+    const result = await interpretReceipt(DINNER_INPUT, { llm, ...DEPS });
+    expect(result.llm.attempts).toBe(1);
+  });
+
+  it("stripReasoning covers paired, stray-close and unterminated forms and fenced JSON after them", () => {
+    expect(stripReasoning("<think>a { b } c</think> {\"x\":1}")).toBe('{"x":1}');
+    expect(stripReasoning("<THINK>one</THINK>\n<think>two {}</think>\n```json\n{\"x\":1}\n```")).toBe('```json\n{"x":1}\n```');
+    expect(stripReasoning("reasoning without opening tag { } </think>\n{\"x\":1}")).toBe('{"x":1}');
+    expect(stripReasoning("<think>never closed\n{\"x\":1}")).toBe('{"x":1}');
+    expect(stripReasoning("<think>never closed and no json")).toBe("");
+    expect(stripReasoning('{"x":1}')).toBe('{"x":1}');
+    expect(extractJson("<think>{not json}</think>```json\n{\"x\":[1]}\n```")).toEqual({ x: [1] });
+  });
+});
+
+describe("interpretReceipt: remembers accepted response formats", () => {
+  const rejectJsonSchema: Step = (request) => {
+    if (request.responseFormat.type === "json_schema") throw new LlmRequestError("unsupported", 400);
+    return { text: JSON.stringify(DINNER_INTERPRETATION) };
+  };
+
+  it("skips json_schema for a (baseURL, model) that rejected it before", async () => {
+    const { llm, requests } = scriptedLlm([rejectJsonSchema, rejectJsonSchema, rejectJsonSchema]);
+    const provider = { ...llm, baseURL: "https://soclaas.example/v1" };
+    expect(knownResponseFormat(provider, "primary")).toBeUndefined();
+
+    await interpretReceipt(DINNER_INPUT, { llm: provider, ...DEPS });
+    expect(knownResponseFormat(provider, "primary")).toBe("json_object");
+
+    const second = await interpretReceipt(DINNER_INPUT, { llm: provider, ...DEPS });
+    expect(requests.map((r) => r.responseFormat.type)).toEqual(["json_schema", "json_object", "json_object"]);
+    expect(second.llm.responseFormat).toBe("json_object");
+  });
+
+  it("keys the memory by provider and model", async () => {
+    const { llm, requests } = scriptedLlm([rejectJsonSchema, rejectJsonSchema, reply(DINNER_INTERPRETATION), reply(DINNER_INTERPRETATION)]);
+    const providerA = { ...llm, baseURL: "https://a.example/v1" };
+    const providerB = { ...llm, baseURL: "https://b.example/v1" };
+    await interpretReceipt(DINNER_INPUT, { llm: providerA, ...DEPS });
+    await interpretReceipt(DINNER_INPUT, { llm: providerA, model: "other" });
+    await interpretReceipt(DINNER_INPUT, { llm: providerB, ...DEPS });
+    expect(requests.map((r) => [r.model, r.responseFormat.type])).toEqual([
+      ["primary", "json_schema"],
+      ["primary", "json_object"],
+      ["other", "json_schema"],
+      ["primary", "json_schema"],
+    ]);
+    expect(knownResponseFormat(providerA, "primary")).toBe("json_object");
+    expect(knownResponseFormat(providerA, "other")).toBe("json_schema");
+    expect(knownResponseFormat(providerB, "primary")).toBe("json_schema");
   });
 });
 
@@ -199,14 +327,19 @@ describe("interpretReceipt: validation retry", () => {
 
   it("rejects bad input before calling the model", async () => {
     const { llm, requests } = scriptedLlm([]);
-    await expectInterpretError(interpretReceipt({ note: "", participants: [] }, { llm, ...DEPS }), "invalid_input");
+    await expectInterpretError(interpretReceipt({ note: "", participants: [], hostId: "a" }, { llm, ...DEPS }), "invalid_input");
     await expectInterpretError(
       interpretReceipt(
-        { receiptText: "x", note: "", participants: [{ id: "a", name: "A" }, { id: "a", name: "B" }] },
+        { receiptText: "x", note: "", participants: [{ id: "a", name: "A" }, { id: "a", name: "B" }], hostId: "a" },
         { llm, ...DEPS },
       ),
       "invalid_input",
     );
+    const strangerHost = await expectInterpretError(
+      interpretReceipt({ ...DINNER_INPUT, hostId: "zoe" }, { llm, ...DEPS }),
+      "invalid_input",
+    );
+    expect(strangerHost.details).toEqual([expect.objectContaining({ path: ["hostId"] })]);
     expect(requests).toHaveLength(0);
   });
 });

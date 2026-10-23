@@ -3,6 +3,7 @@ import "server-only";
 import {
   formatSGD,
   fromDollars,
+  hostNeverAbsorbs,
   MoneyError,
   NO_CHARGES,
   SG_GST_ONLY,
@@ -68,9 +69,29 @@ interface ValidationProblem {
   readonly message: string;
 }
 
-/** Strips markdown fences / surrounding prose that models like to add around JSON. */
+/**
+ * Removes reasoning blocks that qwen3-family models emit before the answer:
+ * every `<think>…</think>` pair, a stray leading `…</think>` whose opening
+ * tag was dropped, and an unterminated `<think>…` up to the first `{` after it.
+ */
+export function stripReasoning(text: string): string {
+  let out = text.replace(/<think>[\s\S]*?<\/think>/gi, "");
+  const strayClose = out.search(/<\/think>/i);
+  const open = out.search(/<think>/i);
+  if (strayClose !== -1 && (open === -1 || strayClose < open)) {
+    out = out.slice(strayClose + "</think>".length);
+  }
+  const unterminated = out.search(/<think>/i);
+  if (unterminated !== -1) {
+    const brace = out.indexOf("{", unterminated);
+    out = brace === -1 ? out.slice(0, unterminated) : out.slice(0, unterminated) + out.slice(brace);
+  }
+  return out.trim();
+}
+
+/** Strips reasoning blocks, markdown fences and surrounding prose that models like to add around JSON. */
 export function extractJson(text: string): unknown {
-  const trimmed = text.trim();
+  const trimmed = stripReasoning(text);
   const fenced = /^```(?:json)?\s*([\s\S]*?)\s*```$/i.exec(trimmed);
   const candidate = fenced ? fenced[1] : trimmed;
   try {
@@ -140,8 +161,15 @@ export function validateOutput(
   return problems.length > 0 ? { ok: false, problems } : { ok: true, interpretation };
 }
 
-/** Maps a validated interpretation to the domain input. Only prices go through `fromDollars`. */
-export function toSplitInput(interpretation: ReceiptInterpretation, participantIds: readonly string[]): SplitInput {
+/**
+ * Maps a validated interpretation to the domain input. Only prices go through
+ * `fromDollars`. Leftover rounding cents go to friends, never the host.
+ */
+export function toSplitInput(
+  interpretation: ReceiptInterpretation,
+  participantIds: readonly string[],
+  hostId: string,
+): SplitInput {
   const items: LineItem[] = interpretation.items.map((item) => ({
     label: item.label,
     price: fromDollars(item.price),
@@ -156,6 +184,7 @@ export function toSplitInput(interpretation: ReceiptInterpretation, participantI
     items,
     charges: toChargePolicy(interpretation.charges),
     participants: participantIds,
+    remainderPolicy: hostNeverAbsorbs(hostId),
     ...(exclusion ? { exclusion } : {}),
     ...(interpretation.treatedBy ? { treatedBy: interpretation.treatedBy } : {}),
   };
@@ -187,6 +216,23 @@ function crossCheckPrinted(interpretation: ReceiptInterpretation, split: SplitRe
 
 const RESPONSE_FORMAT_ORDER: readonly LlmResponseFormat["type"][] = ["json_schema", "json_object", "text"];
 
+/**
+ * Response format each (provider, model) is known to accept, learned from
+ * 400s at runtime so later requests skip formats the provider rejects.
+ * Module memory only: reset on restart. Exported for tests.
+ */
+const acceptedResponseFormats = new Map<string, LlmResponseFormat["type"]>();
+
+const formatCacheKey = (llm: LlmCaller, model: string) => `${llm.baseURL ?? ""}\u0000${model}`;
+
+export function knownResponseFormat(llm: LlmCaller, model: string): LlmResponseFormat["type"] | undefined {
+  return acceptedResponseFormats.get(formatCacheKey(llm, model));
+}
+
+export function resetResponseFormatCache(): void {
+  acceptedResponseFormats.clear();
+}
+
 function describeError(error: unknown): string {
   if (error instanceof InterpretError) return `${error.code}: ${error.message}`;
   return error instanceof Error ? error.message : String(error);
@@ -214,7 +260,8 @@ async function interpretWithModel(input: InterpretInput, model: string, llm: Llm
   const participantIds = input.participants.map((p) => p.id);
   const idSet = new Set(participantIds);
   const schema = receiptInterpretationJsonSchema(participantIds);
-  let formatIndex = 0;
+  const cacheKey = formatCacheKey(llm, model);
+  let formatIndex = Math.max(0, RESPONSE_FORMAT_ORDER.indexOf(acceptedResponseFormats.get(cacheKey) ?? "json_schema"));
   let messages: LlmMessage[] = buildMessages(input);
 
   const complete = async (): Promise<string> => {
@@ -224,6 +271,7 @@ async function interpretWithModel(input: InterpretInput, model: string, llm: Llm
         type === "json_schema" ? { type, name: RECEIPT_INTERPRETATION_SCHEMA_NAME, schema } : { type };
       try {
         const completion = await llm.complete({ model, messages, responseFormat });
+        acceptedResponseFormats.set(cacheKey, type);
         return completion.text;
       } catch (error) {
         const canStepDown = error instanceof LlmRequestError && error.isBadRequest && formatIndex < RESPONSE_FORMAT_ORDER.length - 1;
@@ -318,7 +366,7 @@ export async function interpretReceipt(input: InterpretInput, deps: InterpretDep
   }
 
   const { interpretation } = outcome;
-  const splitInput = toSplitInput(interpretation, participantIds);
+  const splitInput = toSplitInput(interpretation, participantIds, validInput.hostId);
   let split: SplitResult;
   try {
     split = splitReceipt(splitInput);

@@ -51,6 +51,15 @@ are only required at runtime when a Supabase client is created.
 CI (`.github/workflows/ci.yml`) runs install (frozen lockfile), lint,
 typecheck, test and build on every push and pull request.
 
+## API
+
+| Route                 | What it does |
+| --------------------- | ------------ |
+| `POST /api/interpret` | Sends a receipt (image data URL or text), the host's note, the participants and `hostId` to the configured LLM and returns a *proposed* split computed by `src/domain` (amounts in cents). Nothing is persisted. See `src/server/interpret/`. |
+
+**`/api/interpret` is unauthenticated.** Anyone who can reach it can spend
+LLM credits. Do not deploy it publicly until authentication exists.
+
 ## Branches
 
 - `develop` is the integration branch. Feature branches are opened as PRs

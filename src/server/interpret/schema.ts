@@ -40,10 +40,16 @@ export const InterpretInputSchema = z
       .refine((list) => new Set(list.map((p) => p.id)).size === list.length, {
         message: "participant ids must be unique",
       }),
+    /** The participant who fronted the bill. Must be one of `participants`; never absorbs rounding. */
+    hostId: z.string().min(1),
   })
   .refine((input) => input.image !== undefined || input.receiptText !== undefined, {
     message: "provide either image or receiptText",
     path: ["receiptText"],
+  })
+  .refine((input) => input.participants.some((p) => p.id === input.hostId), {
+    message: "hostId must be one of the participant ids",
+    path: ["hostId"],
   });
 
 export type InterpretInput = z.infer<typeof InterpretInputSchema>;
