@@ -101,3 +101,38 @@ export async function appendLedgerEvent(db: DbClient, hostId: string, event: New
   const row = unwrapRequired(await db.from("ledger_events").insert(insert).select("*").single(), "appendLedgerEvent");
   return toLedgerEvent(row);
 }
+
+/** One ledger row with its timestamp and links, for a friend's history screen. */
+export interface LedgerHistoryEntry {
+  readonly id: string;
+  readonly type: LedgerEventType;
+  readonly amount: Cents;
+  readonly note: string | null;
+  readonly receiptId: string | null;
+  readonly paymentRequestId: string | null;
+  readonly createdAt: string;
+}
+
+/** A friend's ledger rows, newest first. Display only; balances come from `loadLedger` + the domain. */
+export async function listLedgerHistory(db: DbClient, hostId: string, friendId: string): Promise<LedgerHistoryEntry[]> {
+  const rows =
+    unwrap(
+      await db
+        .from("ledger_events")
+        .select("*")
+        .eq("host_id", hostId)
+        .eq("friend_id", friendId)
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false }),
+      "listLedgerHistory",
+    ) ?? [];
+  return rows.map((row) => ({
+    id: row.id,
+    type: row.type,
+    amount: row.amount,
+    note: row.note,
+    receiptId: row.receipt_id,
+    paymentRequestId: row.payment_request_id,
+    createdAt: row.created_at,
+  }));
+}

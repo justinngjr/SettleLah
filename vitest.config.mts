@@ -9,7 +9,10 @@ export default defineConfig({
     },
   },
   test: {
+    // Component tests opt into jsdom with `// @vitest-environment jsdom` at the top of the file.
     environment: "node",
     include: ["src/**/*.test.{ts,tsx}"],
+    exclude: ["**/node_modules/**", "e2e/**"],
+    setupFiles: ["./src/test/setup.ts"],
   },
 });

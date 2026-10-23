@@ -19,9 +19,11 @@ export {
   appendLedgerEvent,
   friendBalanceSql,
   listBalances,
+  listLedgerHistory,
   loadLedger,
   toLedgerEvent,
   type FriendBalance,
+  type LedgerHistoryEntry,
   type NewLedgerEvent,
 } from "./ledger";
 export {
@@ -44,4 +46,6 @@ export {
   type PaymentClaim,
   type PaymentRequest,
 } from "./payments";
+export { getProfile, isProfileComplete, toProfile, updateProfile, type CompleteProfile, type Profile, type ProfilePatch } from "./profiles";
+export { listReceiptsById, listRecentReceipts, toReceiptSummary, type ReceiptSummary } from "./receipts";
 export { buildSaveSplitArgs, saveSplit, type FriendMap, type ReceiptInput } from "./splits";
