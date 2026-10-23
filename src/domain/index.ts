@@ -41,6 +41,8 @@ export {
 export {
   splitReceipt,
   SplitError,
+  type Exclusion,
+  type ExclusionRedistribution,
   type LineItem,
   type ParticipantId,
   type ParticipantShare,

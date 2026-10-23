@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { NO_CHARGES, SG_GST_ONLY, SG_STANDARD_CHARGES, type ChargePolicy } from "./charges";
 import { MoneyError } from "./money";
 import type { RemainderPolicy } from "./rounding";
-import { splitReceipt, SplitError, type LineItem, type SplitInput } from "./split";
+import { splitReceipt, SplitError, type ExclusionRedistribution, type LineItem, type SplitInput } from "./split";
 
 const sumShares = (input: SplitInput) =>
   splitReceipt(input).shares.reduce((sum, share) => sum + share.amount, 0);
@@ -132,7 +132,7 @@ describe("splitReceipt table", () => {
       "excluded birthday person pays nothing; the others absorb proportionally",
       {
         charges: NO_CHARGES,
-        excluded: ["bday"],
+        exclusion: { participants: ["bday"], redistribute: "proportional" },
         items: [
           { price: 3000, sharedBy: ["a", "b", "bday"] },
           { price: 1000, sharedBy: ["a"] },
@@ -142,16 +142,67 @@ describe("splitReceipt table", () => {
       { a: 2667, b: 1333, bday: 0 },
     ],
     [
-      "excluded person who is only in `excluded`, not on any item",
-      { charges: NO_CHARGES, excluded: ["x"], items: [{ price: 100, sharedBy: ["a", "b"] }] },
+      "excluded person who is only in `exclusion`, not on any item",
+      { charges: NO_CHARGES, exclusion: { participants: ["x"], redistribute: "proportional" }, items: [{ price: 100, sharedBy: ["a", "b"] }] },
       { a: 50, b: 50, x: 0 },
+    ],
+    [
+      "birthday exclusion, redistribute proportional: $40 / $10 payers absorb $30 as 4:1",
+      {
+        charges: NO_CHARGES,
+        exclusion: { participants: ["bday"], redistribute: "proportional" },
+        items: [
+          { price: 4000, sharedBy: ["a"] },
+          { price: 1000, sharedBy: ["b"] },
+          { price: 3000, sharedBy: ["bday"] },
+        ],
+      },
+      // 8000 × 40/50 = 6400, × 10/50 = 1600
+      { a: 6400, b: 1600, bday: 0 },
+    ],
+    [
+      "birthday exclusion, redistribute equal: $40 / $10 payers each absorb $15",
+      {
+        charges: NO_CHARGES,
+        exclusion: { participants: ["bday"], redistribute: "equal" },
+        items: [
+          { price: 4000, sharedBy: ["a"] },
+          { price: 1000, sharedBy: ["b"] },
+          { price: 3000, sharedBy: ["bday"] },
+        ],
+      },
+      { a: 5500, b: 2500, bday: 0 },
+    ],
+    [
+      "redistribute equal with charges: shares still sum to the printed total",
+      {
+        charges: SG_STANDARD_CHARGES,
+        exclusion: { participants: ["bday"], redistribute: "equal" },
+        items: [
+          { price: 4000, sharedBy: ["a"] },
+          { price: 1000, sharedBy: ["b"] },
+          { price: 3000, sharedBy: ["bday"] },
+        ],
+      },
+      // subtotal 8000, SC 800, GST 792, total 9592; weights 55:25 -> 6594.5 / 2997.5, largest remainder tie -> a
+      { a: 6595, b: 2997, bday: 0 },
+    ],
+    [
+      "only the excluded person ordered, redistribute equal: payers split equally",
+      {
+        charges: NO_CHARGES,
+        participants: ["a", "b", "bday"],
+        exclusion: { participants: ["bday"], redistribute: "equal" },
+        items: [{ price: 101, sharedBy: ["bday"] }],
+      },
+      { a: 51, b: 50, bday: 0 },
     ],
     [
       "only the excluded person ordered: payers split equally",
       {
         charges: NO_CHARGES,
         participants: ["a", "b", "bday"],
-        excluded: ["bday"],
+        exclusion: { participants: ["bday"], redistribute: "proportional" },
         items: [{ price: 101, sharedBy: ["bday"] }],
       },
       { a: 51, b: 50, bday: 0 },
@@ -175,7 +226,7 @@ describe("splitReceipt table", () => {
     ],
     [
       "treat with an excluded participant present",
-      { charges: NO_CHARGES, treatedBy: "host", excluded: ["bday"], items: [{ price: 2000, sharedBy: ["a", "bday"] }] },
+      { charges: NO_CHARGES, treatedBy: "host", exclusion: { participants: ["bday"], redistribute: "proportional" }, items: [{ price: 2000, sharedBy: ["a", "bday"] }] },
       { a: 0, bday: 0, host: 2000 },
     ],
     ["no items at all", { charges: SG_STANDARD_CHARGES, participants: ["a", "b"], items: [] }, { a: 0, b: 0 }],
@@ -186,7 +237,7 @@ describe("splitReceipt table", () => {
     ],
     [
       "excluded-only receipt with zero total",
-      { charges: NO_CHARGES, excluded: ["a"], items: [{ price: 0, sharedBy: ["a"] }] },
+      { charges: NO_CHARGES, exclusion: { participants: ["a"], redistribute: "proportional" }, items: [{ price: 0, sharedBy: ["a"] }] },
       { a: 0 },
     ],
   ];
@@ -197,7 +248,7 @@ describe("splitReceipt table", () => {
   });
 
   it("flags who pays nothing", () => {
-    const excluded = splitReceipt({ charges: NO_CHARGES, excluded: ["b"], items: [{ price: 10, sharedBy: ["a", "b"] }] });
+    const excluded = splitReceipt({ charges: NO_CHARGES, exclusion: { participants: ["b"], redistribute: "proportional" }, items: [{ price: 10, sharedBy: ["a", "b"] }] });
     expect(excluded.shares.map((s) => s.paysNothing)).toEqual([false, true]);
     const treated = splitReceipt({ charges: NO_CHARGES, treatedBy: "a", items: [{ price: 10, sharedBy: ["a", "b"] }] });
     expect(treated.shares.map((s) => s.paysNothing)).toEqual([false, true]);
@@ -232,6 +283,31 @@ describe("splitReceipt table", () => {
   });
 });
 
+describe("exclusion.redistribute is required", () => {
+  it("is a compile-time error to omit redistribute", () => {
+    const input: SplitInput = {
+      charges: NO_CHARGES,
+      items: [{ price: 100, sharedBy: ["a", "b"] }],
+      // @ts-expect-error -- redistribute has no default and must be chosen explicitly
+      exclusion: { participants: ["a"] },
+    };
+    expect(() => splitReceipt(input)).toThrow(SplitError);
+  });
+
+  it("proportional and equal modes differ when payers ordered unequal amounts", () => {
+    const items: LineItem[] = [
+      { price: 4000, sharedBy: ["a"] },
+      { price: 1000, sharedBy: ["b"] },
+      { price: 3000, sharedBy: ["bday"] },
+    ];
+    const proportional = amountsOf({ charges: NO_CHARGES, items, exclusion: { participants: ["bday"], redistribute: "proportional" } });
+    const equal = amountsOf({ charges: NO_CHARGES, items, exclusion: { participants: ["bday"], redistribute: "equal" } });
+    expect(proportional).toEqual({ a: 6400, b: 1600, bday: 0 });
+    expect(equal).toEqual({ a: 5500, b: 2500, bday: 0 });
+    expect(proportional).not.toEqual(equal);
+  });
+});
+
 describe("splitReceipt validation", () => {
   const base = (items: LineItem[], extra: Partial<SplitInput> = {}): SplitInput => ({
     charges: NO_CHARGES,
@@ -258,8 +334,27 @@ describe("splitReceipt validation", () => {
       SplitError,
     ],
     ["duplicate in participants", base([{ price: 100, sharedBy: ["a"] }], { participants: ["a", "a"] }), SplitError],
-    ["treating and excluded", base([{ price: 100, sharedBy: ["a"] }], { treatedBy: "a", excluded: ["a"] }), SplitError],
-    ["everyone excluded with a non-zero total", base([{ price: 100, sharedBy: ["a"] }], { excluded: ["a"] }), SplitError],
+    ["treating and excluded", base([{ price: 100, sharedBy: ["a"] }], { treatedBy: "a", exclusion: { participants: ["a"], redistribute: "proportional" } }), SplitError],
+    ["everyone excluded with a non-zero total", base([{ price: 100, sharedBy: ["a"] }], { exclusion: { participants: ["a"], redistribute: "proportional" } }), SplitError],
+    [
+      "unknown exclusion.redistribute mode",
+      base([{ price: 100, sharedBy: ["a", "b"] }], {
+        exclusion: { participants: ["a"], redistribute: "halvsies" as unknown as "equal" },
+      }),
+      SplitError,
+    ],
+    [
+      "exclusion without redistribute",
+      base([{ price: 100, sharedBy: ["a", "b"] }], {
+        exclusion: { participants: ["a"] } as unknown as SplitInput["exclusion"],
+      }),
+      SplitError,
+    ],
+    [
+      "duplicate in exclusion.participants",
+      base([{ price: 100, sharedBy: ["a", "b"] }], { exclusion: { participants: ["a", "a"], redistribute: "proportional" } }),
+      SplitError,
+    ],
     ["float service charge rate", base([{ price: 100, sharedBy: ["a"] }], { charges: { serviceChargeBps: 0.1, gstBps: 0 } }), MoneyError],
   ])("rejects %s", (_name, input, errorType) => {
     expect(() => splitReceipt(input)).toThrow(errorType);
@@ -292,14 +387,23 @@ describe("property: shares always sum to the receipt total", () => {
     .record({
       items: fc.array(lineItemArb, { minLength: 1, maxLength: 12 }),
       charges: chargesArb,
-      excluded: fc.uniqueArray(fc.constantFrom(...participantIds), { maxLength: 2 }),
+      exclusion: fc.option(
+        fc.record({
+          participants: fc.uniqueArray(fc.constantFrom(...participantIds), { maxLength: 2 }),
+          redistribute: fc.constantFrom<ExclusionRedistribution>("proportional", "equal"),
+        }),
+        { nil: undefined },
+      ),
       treatedBy: fc.option(fc.constantFrom(...participantIds), { nil: undefined }),
     })
-    .map(({ items, charges, excluded, treatedBy }) => ({
+    .map(({ items, charges, exclusion, treatedBy }): SplitInput => ({
       items,
       charges,
       participants: participantIds,
-      excluded: excluded.filter((id) => id !== treatedBy),
+      exclusion:
+        exclusion === undefined
+          ? undefined
+          : { ...exclusion, participants: exclusion.participants.filter((id) => id !== treatedBy) },
       treatedBy,
     }));
 
@@ -322,7 +426,7 @@ describe("property: shares always sum to the receipt total", () => {
 
   it("each share is within one cent of its exact proportional value", () => {
     fc.assert(
-      fc.property(inputArb.filter((i) => i.treatedBy === undefined && (i.excluded?.length ?? 0) === 0), (input) => {
+      fc.property(inputArb.filter((i) => i.treatedBy === undefined && i.exclusion === undefined), (input) => {
         const result = splitReceipt(input);
         const subtotal = result.totals.subtotal;
         if (subtotal === 0) return;

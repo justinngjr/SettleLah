@@ -20,6 +20,26 @@ import { allocateRemainder } from "./rounding";
 
 export type ParticipantId = string;
 
+/**
+ * How excluded participants' item shares are spread over the payers (the
+ * non-excluded participants). Always chosen explicitly by whoever interprets
+ * the context (host or LLM); the domain never guesses.
+ *
+ * - `proportional`: in proportion to each payer's own item subtotal.
+ * - `equal`: the excluded people's combined item subtotal is divided equally
+ *   among the payers, on top of each payer's own item subtotal.
+ */
+export type ExclusionRedistribution = "proportional" | "equal";
+
+const EXCLUSION_REDISTRIBUTIONS: readonly ExclusionRedistribution[] = ["proportional", "equal"];
+
+export interface Exclusion {
+  /** Participants who pay nothing (e.g. the birthday person). */
+  readonly participants: readonly ParticipantId[];
+  /** Required: no default redistribution policy. */
+  readonly redistribute: ExclusionRedistribution;
+}
+
 /** A receipt line as printed, *before* service charge and GST. */
 export interface LineItem {
   readonly label?: string;
@@ -46,11 +66,10 @@ export interface SplitInput {
    */
   readonly participants?: readonly ParticipantId[];
   /**
-   * Participants who pay nothing (e.g. the birthday person). Their item shares
-   * are redistributed to the remaining payers in proportion to what those
-   * payers ordered.
+   * Participants who pay nothing, plus how their item shares are redistributed
+   * to the remaining payers. `redistribute` must be given explicitly.
    */
-  readonly excluded?: readonly ParticipantId[];
+  readonly exclusion?: Exclusion;
   /** One participant pays the whole receipt; everyone else owes 0. */
   readonly treatedBy?: ParticipantId;
   /** Defaults to the largest-remainder `allocateRemainder` in rounding.ts. */
@@ -124,13 +143,35 @@ function validateItem(item: LineItem, index: number): void {
   }
 }
 
-function resolveParticipants(input: SplitInput): ParticipantId[] {
+function validateExclusion(exclusion: Exclusion | undefined): Set<ParticipantId> {
+  if (exclusion === undefined) return new Set();
+  if (typeof exclusion !== "object" || exclusion === null) {
+    throw new SplitError("exclusion must be an object");
+  }
+  if (!EXCLUSION_REDISTRIBUTIONS.includes(exclusion.redistribute)) {
+    throw new SplitError(
+      `exclusion.redistribute must be one of ${EXCLUSION_REDISTRIBUTIONS.join(", ")}; got ${String(exclusion.redistribute)}`,
+    );
+  }
+  if (!Array.isArray(exclusion.participants)) {
+    throw new SplitError("exclusion.participants must be an array of participant ids");
+  }
+  const excluded = new Set<ParticipantId>();
+  for (const id of exclusion.participants) {
+    assertParticipantId(id, "exclusion.participants");
+    if (excluded.has(id)) throw new SplitError(`exclusion.participants lists ${id} more than once`);
+    excluded.add(id);
+  }
+  return excluded;
+}
+
+function resolveParticipants(input: SplitInput, excluded: ReadonlySet<ParticipantId>): ParticipantId[] {
   const referenced: ParticipantId[] = [];
   const add = (id: ParticipantId) => {
     if (!referenced.includes(id)) referenced.push(id);
   };
   for (const item of input.items) item.sharedBy.forEach(add);
-  (input.excluded ?? []).forEach((id) => add(assertParticipantId(id, "excluded")));
+  excluded.forEach(add);
   if (input.treatedBy !== undefined) add(assertParticipantId(input.treatedBy, "treatedBy"));
 
   if (input.participants === undefined) return referenced;
@@ -159,6 +200,40 @@ function itemSubtotals(items: readonly LineItem[], participants: readonly Partic
     }
   }
   return subtotals;
+}
+
+/**
+ * Allocation weights for the non-treat case: excluded participants get 0 and
+ * their item shares are redistributed to the payers per `redistribute`.
+ * Scaling all weights by a constant does not change the allocation, so the
+ * proportional mode can use the payers' own subtotals directly.
+ */
+function payerWeights(
+  participants: readonly ParticipantId[],
+  subtotals: ReadonlyMap<ParticipantId, Rational>,
+  excluded: ReadonlySet<ParticipantId>,
+  redistribute: ExclusionRedistribution,
+): Rational[] {
+  const own = (id: ParticipantId) => subtotals.get(id) ?? RATIONAL_ZERO;
+  const payers = participants.filter((id) => !excluded.has(id));
+
+  let weights: Rational[];
+  if (redistribute === "equal" && payers.length > 0) {
+    const excludedSubtotal = participants
+      .filter((id) => excluded.has(id))
+      .map(own)
+      .reduce(rationalAdd, RATIONAL_ZERO);
+    const topUp = rationalDiv(excludedSubtotal, rationalFromInt(payers.length));
+    weights = participants.map((id) => (excluded.has(id) ? RATIONAL_ZERO : rationalAdd(own(id), topUp)));
+  } else {
+    weights = participants.map((id) => (excluded.has(id) ? RATIONAL_ZERO : own(id)));
+  }
+
+  if (payers.length > 0 && weights.every(rationalIsZero)) {
+    // Nobody who pays ordered anything (and nothing to redistribute): payers split the total equally.
+    weights = participants.map((id) => (excluded.has(id) ? RATIONAL_ZERO : rationalFromInt(1)));
+  }
+  return weights;
 }
 
 function roundHalfUpToCents(value: Rational): Cents {
@@ -225,8 +300,8 @@ function allocateProportionally(
  */
 export function splitReceipt(input: SplitInput): SplitResult {
   input.items.forEach(validateItem);
-  const participants = resolveParticipants(input);
-  const excluded = new Set(input.excluded ?? []);
+  const excluded = validateExclusion(input.exclusion);
+  const participants = resolveParticipants(input, excluded);
   if (input.treatedBy !== undefined && excluded.has(input.treatedBy)) {
     throw new SplitError(`${input.treatedBy} cannot both treat and be excluded`);
   }
@@ -243,12 +318,7 @@ export function splitReceipt(input: SplitInput): SplitResult {
   if (input.treatedBy !== undefined) {
     weights = participants.map((id) => (id === input.treatedBy ? rationalFromInt(1) : RATIONAL_ZERO));
   } else {
-    weights = participants.map((id) => (excluded.has(id) ? RATIONAL_ZERO : (subtotals.get(id) ?? RATIONAL_ZERO)));
-    const payers = participants.filter((id) => !excluded.has(id));
-    if (payers.length > 0 && weights.every(rationalIsZero)) {
-      // Only excluded participants ordered anything: payers split the total equally.
-      weights = participants.map((id) => (excluded.has(id) ? RATIONAL_ZERO : rationalFromInt(1)));
-    }
+    weights = payerWeights(participants, subtotals, excluded, input.exclusion?.redistribute ?? "proportional");
   }
 
   const amounts = allocateProportionally(
