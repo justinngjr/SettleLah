@@ -5,8 +5,6 @@ import { z } from "zod";
 import { followUp, rejectAction } from "@/server/agent/actions";
 import { errorResponse, loopEventToStream, sseResponse, toActionDto, withAgent } from "@/server/agent/http";
 
-export const dynamic = "force-dynamic";
-
 type Params = { params: Promise<{ id: string }> };
 
 /** POST -> text/event-stream: `action` (rejected / already), then the assistant's reply, then `done`. */

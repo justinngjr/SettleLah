@@ -7,8 +7,6 @@ import { errorResponse, loopEventToStream, sseResponse, toMessageDto, withAgent 
 import { appendMessage, createConversation, getConversation } from "@/server/agent/store";
 import { base64DecodedBytes } from "@/server/interpret/schema";
 
-export const dynamic = "force-dynamic";
-
 const IMAGE_DATA_URL = /^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/]+={0,2})$/;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 

@@ -9,8 +9,6 @@ import { getConversation, listActions, listMessages } from "@/server/agent/store
 import { getHost } from "@/server/auth/session";
 import { createDbClient } from "@/server/db";
 
-export const dynamic = "force-dynamic";
-
 type Params = { params: Promise<{ id: string }> };
 
 /** GET -> { id, title, messages, actions } for reloading a chat. Tool messages are omitted. */
