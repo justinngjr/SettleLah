@@ -1,0 +1,150 @@
+/**
+ * Not a smoke test: captures every main screen at 390/1280px in light and dark
+ * for review. Opt in with `SCREENSHOTS=1 pnpm e2e e2e/screenshots.spec.ts`.
+ */
+import { test, type Browser } from "@playwright/test";
+import { mkdirSync } from "node:fs";
+
+import { signInAsNewHost } from "./auth";
+
+test.skip(!process.env.SCREENSHOTS, "set SCREENSHOTS=1 to capture screenshots");
+test.setTimeout(240_000);
+
+const base = process.env.E2E_BASE_URL ?? "http://localhost:3000";
+const out = process.env.SCREENSHOT_DIR ?? "/home/ubuntu/screens";
+mkdirSync(out, { recursive: true });
+
+async function main(browser: Browser) {
+  const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const page = await context.newPage();
+
+  // Seed: host, friends, one receipt, one open request.
+  await signInAsNewHost(page, base);
+  await page.waitForURL(/onboarding/);
+  await page.getByLabel(/your display name/i).fill("Jun Wei");
+  await page.getByRole("textbox", { name: /mobile number/i }).fill("91234567");
+  await page.getByLabel(/payee name/i).fill("JUN WEI TAN");
+  await page.getByRole("button", { name: /save and continue/i }).click();
+  await page.waitForURL(/\/app(\?.*)?$/);
+  for (const name of ["Sarah", "Ben", "Priya"]) {
+    await page.goto(`${base}/app/friends`);
+    await page.getByLabel(/^name$/i).fill(name);
+    await page.getByRole("button", { name: /add friend/i }).click();
+    await page.getByRole("link", { name }).waitFor();
+  }
+  await page.goto(`${base}/app/receipts/new`);
+  await page.getByText("Sarah", { exact: true }).click();
+  await page.getByText("Ben", { exact: true }).click();
+  await page.getByRole("button", { name: /continue/i }).click();
+  await page.getByRole("button", { name: /enter items by hand/i }).click();
+  await page.getByLabel(/^title$/i).fill("Friday dinner at Ah Hua");
+  const items: [string, string][] = [["Chilli crab", "68.00"], ["Cereal prawns", "24.00"], ["Rice x3", "4.50"], ["Lime juice x3", "9.00"]];
+  for (let i = 0; i < items.length; i++) {
+    await page.getByRole("button", { name: /add item/i }).click();
+    await page.getByRole("textbox", { name: `Item ${i + 1}` }).fill(items[i][0]);
+    const price = page.getByLabel("Price (SGD)").nth(i);
+    await price.fill(items[i][1]);
+    await price.blur();
+  }
+  await page.getByRole("button", { name: /review split/i }).click();
+  const sarahLink = page.getByRole("link", { name: /Sarah/ });
+  const confirmUrl = page.url();
+  // Capture confirm screen before saving.
+  const shots: Array<[string, () => Promise<void>]> = [];
+  void confirmUrl;
+
+  const capture = async (name: string) => {
+    for (const scheme of ["light", "dark"] as const) {
+      await page.emulateMedia({ colorScheme: scheme });
+      for (const width of [390, 1280]) {
+        await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+        await page.waitForTimeout(150);
+        await page.screenshot({ path: `${out}/${name}-${width}-${scheme}.png`, fullPage: true });
+      }
+    }
+    await page.emulateMedia({ colorScheme: "light" });
+    await page.setViewportSize({ width: 1280, height: 900 });
+  };
+
+  await capture("05-confirm");
+  await page.getByRole("button", { name: /confirm and save/i }).click();
+  await page.waitForURL(/\/app\?saved/);
+  await sarahLink.first().waitFor();
+  await capture("02-home");
+
+  await page.goto(`${base}/app/friends`);
+  await page.getByRole("link", { name: "Sarah" }).waitFor();
+  await capture("03-friends");
+
+  await page.getByRole("link", { name: "Sarah" }).click();
+  await page.getByText(/reference/i).first().waitFor();
+  await capture("06-friend-detail");
+
+  await page.goto(`${base}/app/receipts/new`);
+  await page.getByText("Participants").waitFor();
+  await capture("04a-receipt-participants");
+  await page.getByText("Sarah", { exact: true }).click();
+  await page.getByRole("button", { name: /continue/i }).click();
+  await capture("04b-receipt-mode");
+  await page.getByRole("button", { name: /from a photo/i }).click();
+  await capture("04c-receipt-llm");
+  await page.getByRole("button", { name: /back/i }).click();
+  await page.getByRole("button", { name: /enter items by hand/i }).click();
+  await page.getByRole("button", { name: /add item/i }).click();
+  await page.getByRole("textbox", { name: "Item 1" }).fill("Kopi");
+  await capture("04d-receipt-manual");
+
+  await page.goto(`${base}/app/inbox`);
+  await page.getByText("Marked as paid").waitFor();
+  await capture("07-inbox");
+  await page.goto(`${base}/app/agent`);
+  await page.getByText(/coming soon/i).waitFor();
+  await capture("08-agent");
+  await page.goto(`${base}/app/settings`);
+  await page.getByText(/sign out/i).waitFor();
+  await capture("09-settings");
+
+  // Signed-out screens.
+  const fresh = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+  const p2 = await fresh.newPage();
+  const page2 = p2;
+  await page2.goto(`${base}/login`);
+  for (const scheme of ["light", "dark"] as const) {
+    await page2.emulateMedia({ colorScheme: scheme });
+    for (const width of [390, 1280]) {
+      await page2.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+      await page2.screenshot({ path: `${out}/00-login-${width}-${scheme}.png`, fullPage: true });
+    }
+  }
+  // Onboarding + empty home for a brand-new host.
+  await signInAsNewHost(page2, base);
+  await page2.waitForURL(/onboarding/);
+  for (const scheme of ["light", "dark"] as const) {
+    await page2.emulateMedia({ colorScheme: scheme });
+    for (const width of [390, 1280]) {
+      await page2.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+      await page2.screenshot({ path: `${out}/01-onboarding-${width}-${scheme}.png`, fullPage: true });
+    }
+  }
+  await page2.getByLabel(/your display name/i).fill("New Host");
+  await page2.getByRole("textbox", { name: /mobile number/i }).fill("98765432");
+  await page2.getByLabel(/payee name/i).fill("NEW HOST");
+  await page2.getByRole("button", { name: /save and continue/i }).click();
+  await page2.waitForURL(/\/app(\?.*)?$/);
+  await page2.getByText(/nobody owes you/i).waitFor();
+  for (const scheme of ["light", "dark"] as const) {
+    await page2.emulateMedia({ colorScheme: scheme });
+    for (const width of [390, 1280]) {
+      await page2.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+      await page2.screenshot({ path: `${out}/02-home-empty-${width}-${scheme}.png`, fullPage: true });
+    }
+  }
+  void shots;
+  await fresh.close();
+  await context.close();
+  console.log(`screenshots written to ${out}`);
+}
+
+test("capture screenshots", async ({ browser }) => {
+  await main(browser);
+});
