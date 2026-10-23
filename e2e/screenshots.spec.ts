@@ -98,6 +98,24 @@ async function main(browser: Browser) {
   await page.goto(`${base}/app/inbox`);
   await page.getByText("Marked as paid").waitFor();
   await capture("07-inbox");
+
+  await page.goto(`${base}/app/recurring`);
+  await page.getByText(/nothing repeats yet/i).waitFor();
+  await capture("10a-recurring-empty");
+  await page.goto(`${base}/app/recurring/new`);
+  await page.getByLabel(/^title$/i).waitFor();
+  await page.getByLabel(/^title$/i).fill("Netflix");
+  await page.getByLabel(/amount/i).fill("17.90");
+  await page.getByLabel("Sarah").check();
+  await page.getByLabel("Ben").check();
+  await capture("10b-recurring-new");
+  await page.getByRole("button", { name: /start this recurring expense/i }).click();
+  await page.waitForURL(/\/app\/recurring$/);
+  await page.getByRole("link", { name: /Netflix/ }).waitFor();
+  await capture("10c-recurring-list");
+  await page.getByRole("link", { name: /Netflix/ }).click();
+  await page.getByRole("button", { name: /^pause$/i }).waitFor();
+  await capture("10d-recurring-detail");
   await page.goto(`${base}/app/agent`);
   await page.getByText(/coming soon/i).waitFor();
   await capture("08-agent");
