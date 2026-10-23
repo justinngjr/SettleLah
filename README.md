@@ -47,6 +47,13 @@ are only required at runtime when a Supabase client is created.
 CI (`.github/workflows/ci.yml`) runs install (frozen lockfile), lint,
 typecheck, test and build on every push and pull request.
 
+## Branches
+
+- `develop` is the integration branch. Feature branches are opened as PRs
+  into `develop`.
+- `main` only receives deliberate promotions from `develop` on release.
+- CI runs on every pull request and on pushes to `main` and `develop`.
+
 ## Project layout
 
 ```
