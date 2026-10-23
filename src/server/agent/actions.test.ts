@@ -145,6 +145,49 @@ describe("approve", () => {
   });
 });
 
+describe("recurring", () => {
+  it("create_recurring: card shows the schedule; approval creates the expense with code-derived participants", async () => {
+    const world = agentWorld();
+    const action = await pendingAction(world, "create_recurring", {
+      title: "Netflix",
+      amount: "17.98",
+      cadence: "monthly",
+      anchorDay: 5,
+      participantIds: ["host", world.sarah.id, world.dan.id],
+    });
+    expect(action.preview.title).toBe("Add recurring split: Netflix");
+    expect(action.preview.rows).toEqual([
+      { label: "Amount per run", value: "$17.98", strong: true },
+      { label: "Schedule", value: "Monthly on the 5th" },
+      { label: "Shared by", value: "You, Sarah, Dan" },
+    ]);
+    expect(world.db.table("recurring_expenses")).toHaveLength(0);
+    const outcome = await approveAction(world.ctx(), action.id);
+    if (outcome.kind === "failed") throw new Error(outcome.message);
+    expect(outcome.kind).toBe("executed");
+    const [row] = world.db.table("recurring_expenses");
+    expect(row).toMatchObject({ host_id: world.hostId, title: "Netflix", amount: 1798, cadence: "monthly", anchor_day: 5, active: true });
+    expect(row.participants).toEqual([
+      { id: world.hostId, weight: 1 },
+      { id: world.sarah.id, weight: 1 },
+      { id: world.dan.id, weight: 1 },
+    ]);
+
+    const pause = await pendingAction(world, "pause_recurring", { recurringExpenseId: row.id });
+    expect(pause.preview.title).toBe("Pause recurring split: Netflix");
+    expect((await approveAction(world.ctx(), pause.id)).kind).toBe("executed");
+    expect(world.db.table("recurring_expenses")[0]).toMatchObject({ active: false });
+  });
+
+  it("create_recurring rejects a bad day or a non-participant weight before making a card", async () => {
+    const world = agentWorld();
+    await expect(pendingAction(world, "create_recurring", { title: "Gym", amount: "10", cadence: "weekly", anchorDay: 7, participantIds: [world.ben.id] })).rejects.toMatchObject({ code: "invalid_input" });
+    await expect(
+      pendingAction(world, "create_recurring", { title: "Gym", amount: "10", cadence: "monthly", anchorDay: 1, participantIds: [world.ben.id], weights: { [world.dan.id as string]: 2 } }),
+    ).rejects.toMatchObject({ code: "invalid_input" });
+  });
+});
+
 describe("save_split parity with the Confirm screen", () => {
   it("approving the card writes the same rows as saveReceipt", async () => {
     const agent = agentWorld();

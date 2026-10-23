@@ -15,6 +15,7 @@ import {
   listReceipts,
   resolveFriend,
 } from "./read";
+import { createRecurringTool, listRecurringTool, pauseRecurringTool } from "./recurring";
 import { postSplitToGroupTool, sendReminderNowTool } from "./telegram";
 import type { Tool, WriteTool } from "./types";
 import {
@@ -45,6 +46,7 @@ export const TOOLS: readonly Tool[] = [
   listPendingClaimsTool,
   listBankProposals,
   listReceipts,
+  listRecurringTool,
   interpretReceiptTool,
   saveSplitTool,
   addFriendTool,
@@ -59,6 +61,8 @@ export const TOOLS: readonly Tool[] = [
   ignoreBankAlertTool,
   sendReminderNowTool,
   postSplitToGroupTool,
+  createRecurringTool,
+  pauseRecurringTool,
 ] as readonly Tool[];
 
 export class ToolRegistry {
