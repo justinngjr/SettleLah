@@ -9,6 +9,7 @@ import {
   claimEscalation,
   getFriendById,
   getHostProfile,
+  getPaymentRequest,
   getReceipt,
   getReminderRow,
   getRequestReceiptId,
@@ -116,39 +117,75 @@ async function processRequest(deps: TelegramDeps, host: HostProfile, request: Pa
       await dmHost(deps.api, host.telegramUserId, { text: escalationMessage(friend, request) });
       return "escalated";
     }
-    case "send": {
-      const groupChatId = await groupChatFor(deps, request);
-      if (!state.hasPrivateChat && groupChatId === null) return "unreachable";
-      const sent = afterSent(state, now);
-      const claimed = await casUpdateReminder(
-        deps.db,
-        request.hostId,
-        row.id,
-        { stage: row.stage, lastSentAt: row.last_sent_at },
-        {
-          stage: sent.stage,
-          last_sent_at: now.toISOString(),
-          snoozed_until: null,
-          next_at: nextAtOf(sent, now),
-          channel: decision.channel,
-        },
-      );
-      if (!claimed) return "skipped";
-      const text = reminderMessage({
-        stage: decision.stage,
-        friendName: friend.displayName,
-        amount: request.amount,
-        hostName: hostDisplayName(host),
-      });
-      const qr = decision.stage === 0 ? await renderPayNowQr(host, request) : null;
-      const delivery = await sendToFriend(deps, friend, groupChatId, {
-        text: qr ? `${escapeHtml(text)}\n\n${qr.caption}` : escapeHtml(text),
-        photo: qr?.png,
-        keyboard: requestKeyboard(request),
-      });
-      return delivery.channel === "none" ? "unreachable" : "sent";
-    }
+    case "send":
+      return sendStage(deps, host, request, friend, row, state);
   }
+}
+
+/**
+ * Sends the pending stage to the friend and advances the reminder row. Shared
+ * by the cron tick and the host's "remind now"; the compare-and-set on
+ * (stage, last_sent_at) makes concurrent callers send at most once.
+ */
+async function sendStage(
+  deps: TelegramDeps,
+  host: HostProfile,
+  request: PaymentRequest,
+  friend: Friend,
+  row: ReminderRow,
+  state: ReminderState,
+): Promise<"sent" | "skipped" | "unreachable"> {
+  const now = deps.now();
+  const groupChatId = await groupChatFor(deps, request);
+  if (!state.hasPrivateChat && groupChatId === null) return "unreachable";
+  const sent = afterSent(state, now);
+  const channel = state.hasPrivateChat ? "private" : "group";
+  const claimed = await casUpdateReminder(
+    deps.db,
+    request.hostId,
+    row.id,
+    { stage: row.stage, lastSentAt: row.last_sent_at },
+    {
+      stage: sent.stage,
+      last_sent_at: now.toISOString(),
+      snoozed_until: null,
+      next_at: nextAtOf(sent, now),
+      channel,
+    },
+  );
+  if (!claimed) return "skipped";
+  const text = reminderMessage({
+    stage: state.stage,
+    friendName: friend.displayName,
+    amount: request.amount,
+    hostName: hostDisplayName(host),
+  });
+  const qr = state.stage === 0 ? await renderPayNowQr(host, request) : null;
+  const delivery = await sendToFriend(deps, friend, groupChatId, {
+    text: qr ? `${escapeHtml(text)}\n\n${qr.caption}` : escapeHtml(text),
+    photo: qr?.png,
+    keyboard: requestKeyboard(request),
+  });
+  return delivery.channel === "none" ? "unreachable" : "sent";
+}
+
+export type RemindNowOutcome = "sent" | "unreachable" | "done" | "skipped";
+
+/**
+ * The host asks for a reminder right now, ahead of the schedule: sends the
+ * pending stage immediately (ignoring quiet hours and snooze) if the request
+ * is still open and the schedule is not exhausted.
+ */
+export async function sendReminderNow(deps: TelegramDeps, hostId: string, requestId: string): Promise<RemindNowOutcome> {
+  const request = await getPaymentRequest(deps.db, hostId, requestId);
+  if (!request || request.status !== "open") return "done";
+  const host = await getHostProfile(deps.db, hostId);
+  const friend = await getFriendById(deps.db, hostId, request.friendId);
+  if (!host || !friend) return "skipped";
+  const row = await loadReminderRow(deps, request, friend);
+  const state = toReminderState(row, request, friend, await hasPendingClaim(deps.db, hostId, request.id));
+  if (state.stage > MAX_STAGE) return "done";
+  return sendStage(deps, host, request, friend, row, state);
 }
 
 /**

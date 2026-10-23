@@ -6,6 +6,10 @@ import { createClient } from "@supabase/supabase-js";
  * generate a magic link and open it, exactly like a user clicking the email,
  * without reading the Mailpit inbox.
  */
+export function adminClient() {
+  return admin();
+}
+
 function admin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "http://127.0.0.1:54321";
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;

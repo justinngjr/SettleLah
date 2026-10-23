@@ -23,7 +23,61 @@ export type Database = {
           }
         },"public": {
           Tables: {
-            "bank_alerts": {
+            "agent_actions": {
+                  Row: {
+                    "conversation_id": string,"created_at": string,"error": string | null,"executed_at": string | null,"expires_at": string,"host_id": string,"id": string,"input": NonNullable<Json>,"preview": NonNullable<Json>,"preview_hash": string,"resolved_at": string | null,"result": Json | null,"status": Database["public"]['Enums']["agent_action_status"],"tool": string,"tool_call_id": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "conversation_id": string,"created_at"?: string,"error"?: string | null,"executed_at"?: string | null,"expires_at"?: string,"host_id": string,"id"?: string,"input": NonNullable<Json>,"preview": NonNullable<Json>,"preview_hash": string,"resolved_at"?: string | null,"result"?: Json | null,"status"?: Database["public"]['Enums']["agent_action_status"],"tool": string,"tool_call_id": string
+                  }
+                  Update: {
+                    "conversation_id"?: string,"created_at"?: string,"error"?: string | null,"executed_at"?: string | null,"expires_at"?: string,"host_id"?: string,"id"?: string,"input"?: NonNullable<Json>,"preview"?: NonNullable<Json>,"preview_hash"?: string,"resolved_at"?: string | null,"result"?: Json | null,"status"?: Database["public"]['Enums']["agent_action_status"],"tool"?: string,"tool_call_id"?: string
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "agent_actions_conversation_fkey"
+      columns: ["conversation_id","host_id"]
+isOneToOne: false
+      referencedRelation: "agent_conversations"
+      referencedColumns: ["id","host_id"]
+    }
+                  ]
+                },"agent_conversations": {
+                  Row: {
+                    "created_at": string,"host_id": string,"id": string,"title": string | null,"updated_at": string
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "created_at"?: string,"host_id": string,"id"?: string,"title"?: string | null,"updated_at"?: string
+                  }
+                  Update: {
+                    "created_at"?: string,"host_id"?: string,"id"?: string,"title"?: string | null,"updated_at"?: string
+                  }
+                  Relationships: [
+                    
+                  ]
+                },"agent_messages": {
+                  Row: {
+                    "content": string,"conversation_id": string,"created_at": string,"host_id": string,"id": string,"role": Database["public"]['Enums']["agent_message_role"],"seq": number,"tool_call_id": string | null,"tool_calls": Json | null,"tool_result": Json | null
+                  }
+                  ComputedFields: never
+                  Insert: {
+                    "content"?: string,"conversation_id": string,"created_at"?: string,"host_id": string,"id"?: string,"role": Database["public"]['Enums']["agent_message_role"],"seq"?: never,"tool_call_id"?: string | null,"tool_calls"?: Json | null,"tool_result"?: Json | null
+                  }
+                  Update: {
+                    "content"?: string,"conversation_id"?: string,"created_at"?: string,"host_id"?: string,"id"?: string,"role"?: Database["public"]['Enums']["agent_message_role"],"seq"?: never,"tool_call_id"?: string | null,"tool_calls"?: Json | null,"tool_result"?: Json | null
+                  }
+                  Relationships: [
+                    {
+      foreignKeyName: "agent_messages_conversation_fkey"
+      columns: ["conversation_id","host_id"]
+isOneToOne: false
+      referencedRelation: "agent_conversations"
+      referencedColumns: ["id","host_id"]
+    }
+                  ]
+                },"bank_alerts": {
                   Row: {
                     "amount": number,"bank": string,"created_at": string,"host_id": string,"id": string,"match_confidence": string | null,"match_reason": string | null,"payer_name": string | null,"proposed_friend_id": string | null,"proposed_payment_request_id": string | null,"raw_hash": string,"reason": string | null,"received_at": string,"reference": string | null,"sender": string | null,"status": Database["public"]['Enums']["bank_alert_status"],"subject": string | null
                   }
@@ -417,7 +471,7 @@ isOneToOne: false
                            }
           }
           Enums: {
-            "actor_type": "host"|"system","bank_alert_status": "unmatched"|"proposed"|"confirmed"|"ignored","ledger_event_type": "expense_share"|"payment"|"credit"|"friend_fronted","payment_claim_source": "friend_button"|"bank_alert","payment_claim_status": "pending"|"confirmed"|"rejected","payment_request_status": "open"|"paid"|"cancelled","paynow_proxy_type": "mobile"|"uen","receipt_source": "manual"|"llm","recurring_cadence": "monthly"|"weekly","reminder_channel": "group"|"private","telegram_binding_status": "pending"|"approved"|"rejected","telegram_link_kind": "host"|"group"|"friend"
+            "actor_type": "host"|"system","agent_action_status": "pending"|"approved"|"rejected"|"executed"|"failed"|"expired","agent_message_role": "user"|"assistant"|"tool","bank_alert_status": "unmatched"|"proposed"|"confirmed"|"ignored","ledger_event_type": "expense_share"|"payment"|"credit"|"friend_fronted","payment_claim_source": "friend_button"|"bank_alert","payment_claim_status": "pending"|"confirmed"|"rejected","payment_request_status": "open"|"paid"|"cancelled","paynow_proxy_type": "mobile"|"uen","receipt_source": "manual"|"llm","recurring_cadence": "monthly"|"weekly","reminder_channel": "group"|"private","telegram_binding_status": "pending"|"approved"|"rejected","telegram_link_kind": "host"|"group"|"friend"
           }
           CompositeTypes: {
             [_ in never]: never
@@ -537,7 +591,7 @@ export const Constants = {
           }
         },"public": {
           Enums: {
-            "actor_type": ["host", "system"],"bank_alert_status": ["unmatched", "proposed", "confirmed", "ignored"],"ledger_event_type": ["expense_share", "payment", "credit", "friend_fronted"],"payment_claim_source": ["friend_button", "bank_alert"],"payment_claim_status": ["pending", "confirmed", "rejected"],"payment_request_status": ["open", "paid", "cancelled"],"paynow_proxy_type": ["mobile", "uen"],"receipt_source": ["manual", "llm"],"recurring_cadence": ["monthly", "weekly"],"reminder_channel": ["group", "private"],"telegram_binding_status": ["pending", "approved", "rejected"],"telegram_link_kind": ["host", "group", "friend"]
+            "actor_type": ["host", "system"],"agent_action_status": ["pending", "approved", "rejected", "executed", "failed", "expired"],"agent_message_role": ["user", "assistant", "tool"],"bank_alert_status": ["unmatched", "proposed", "confirmed", "ignored"],"ledger_event_type": ["expense_share", "payment", "credit", "friend_fronted"],"payment_claim_source": ["friend_button", "bank_alert"],"payment_claim_status": ["pending", "confirmed", "rejected"],"payment_request_status": ["open", "paid", "cancelled"],"paynow_proxy_type": ["mobile", "uen"],"receipt_source": ["manual", "llm"],"recurring_cadence": ["monthly", "weekly"],"reminder_channel": ["group", "private"],"telegram_binding_status": ["pending", "approved", "rejected"],"telegram_link_kind": ["host", "group", "friend"]
           }
         }
 } as const
