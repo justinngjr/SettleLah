@@ -1,7 +1,7 @@
 import type { Cents } from "./money";
 import { assertNonNegativeCents } from "./money";
 import type { Rational } from "./rational";
-import { rationalCompare, rationalSign } from "./rational";
+import { rationalCompare, rationalIsZero, rationalSign } from "./rational";
 
 /**
  * One participant's exact share before leftover cents are handed out.
@@ -60,3 +60,49 @@ export const allocateRemainder: RemainderPolicy = (leftoverCents, candidates) =>
   }
   return extras;
 };
+
+/**
+ * Policy for a host who fronted the bill and must never absorb rounding:
+ * leftover cents go to the friends, chosen by the default largest-remainder
+ * rule over the non-host candidates (the host always gets 0 extra cents).
+ *
+ * Falls back to `allocateRemainder` over everyone when the host is not a
+ * candidate, or when no friend has a nonzero exact share (host treats, all
+ * friends excluded, ...). Friends whose exact share is 0 never receive cents.
+ *
+ * When the leftovers come from flooring exact shares, `leftoverCents` is the
+ * sum of the fractions, each `< 1`, so it is at most (number of candidates
+ * with a nonzero fraction) - 1, i.e. never more than the number of eligible
+ * friends: each friend gets at most one extra cent. Larger leftovers (only
+ * possible for direct callers) are spread round-robin, equal whole cents to
+ * every eligible friend, then the rest by largest remainder, so the sum stays
+ * exact.
+ */
+export function hostNeverAbsorbs(hostId: string): RemainderPolicy {
+  return (leftoverCents, candidates) => {
+    assertNonNegativeCents(leftoverCents, "leftoverCents");
+    const hostIndex = candidates.findIndex((candidate) => candidate.participantId === hostId);
+    const friends = candidates
+      .map((candidate, index) => ({ candidate, index }))
+      .filter(({ candidate, index }) => index !== hostIndex && hasNonZeroShare(candidate));
+    if (hostIndex === -1 || friends.length === 0) {
+      return allocateRemainder(leftoverCents, candidates);
+    }
+
+    const rest = leftoverCents % friends.length;
+    const eachFriend = (leftoverCents - rest) / friends.length;
+    const friendExtras = allocateRemainder(
+      rest,
+      friends.map(({ candidate }) => candidate),
+    );
+    const extras = new Array<Cents>(candidates.length).fill(0);
+    friends.forEach(({ index }, k) => {
+      extras[index] = eachFriend + friendExtras[k];
+    });
+    return extras;
+  };
+}
+
+function hasNonZeroShare(candidate: RemainderCandidate): boolean {
+  return candidate.floorCents !== 0 || !rationalIsZero(candidate.fraction);
+}

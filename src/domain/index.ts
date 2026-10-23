@@ -34,6 +34,7 @@ export {
 
 export {
   allocateRemainder,
+  hostNeverAbsorbs,
   type RemainderCandidate,
   type RemainderPolicy,
 } from "./rounding";
