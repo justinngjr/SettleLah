@@ -40,8 +40,8 @@ export const saveSplitTool = writeTool({
   },
   async run(ctx, input) {
     const computed = await computeSplit(ctx, input);
-    const friends = await listFriends(ctx.db, ctx.hostId, { includeArchived: true });
-    const friendMap = Object.fromEntries(friends.filter((f) => computed.participantIds.includes(f.id)).map((f) => [f.id, f.id]));
+    // Participant ids are already friend ids (or the host), checked by computeSplit; same identity map as saveReceipt.
+    const friendMap = Object.fromEntries(computed.participantIds.map((id) => [id, id]));
     const receiptId = await saveSplit(
       ctx.db,
       ctx.hostId,

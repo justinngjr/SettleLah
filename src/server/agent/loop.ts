@@ -252,7 +252,7 @@ export async function runTurn(ctx: ToolContext, deps: AgentDeps, conversationId:
   const registry = deps.registry ?? new ToolRegistry();
   const maxSteps = deps.maxSteps ?? MAX_STEPS;
   const budgetMs = deps.budgetMs ?? TURN_BUDGET_MS;
-  const startedAt = ctx.now.getTime();
+  const startedAt = Date.now();
   const elapsed = () => Date.now() - startedAt;
   const actions: AgentAction[] = [];
   const say = async (text: string) => {
@@ -261,7 +261,7 @@ export async function runTurn(ctx: ToolContext, deps: AgentDeps, conversationId:
   };
 
   for (let step = 1; step <= maxSteps; step++) {
-    if (elapsed() > budgetMs) {
+    if (elapsed() >= budgetMs) {
       await say("I ran out of time on this one. Tell me what to do next and I'll pick it up from here.");
       emit({ type: "done", reason: "timeout" });
       return { reason: "timeout", steps: step - 1, actions };
