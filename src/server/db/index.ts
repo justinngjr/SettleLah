@@ -48,4 +48,29 @@ export {
 } from "./payments";
 export { getProfile, isProfileComplete, toProfile, updateProfile, type CompleteProfile, type Profile, type ProfilePatch } from "./profiles";
 export { listReceiptsById, listRecentReceipts, toReceiptSummary, type ReceiptSummary } from "./receipts";
+export {
+  countRecurringRuns,
+  createRecurring,
+  deleteRecurring,
+  getRecurring,
+  listDueRecurring,
+  listRecurring,
+  listRecurringRuns,
+  MAX_RECURRING_TITLE,
+  parseParticipants,
+  pauseRecurring,
+  RecurringInputError,
+  resumeRecurring,
+  runRecurringExpense,
+  toRecurringExpense,
+  toRecurringRun,
+  updateRecurring,
+  type ListRecurringOptions,
+  type NewRecurringExpense,
+  type RecurringClock,
+  type RecurringExpense,
+  type RecurringExpensePatch,
+  type RecurringRun,
+  type RunRecurringInput,
+} from "./recurring";
 export { buildSaveSplitArgs, saveSplit, type FriendMap, type ReceiptInput } from "./splits";

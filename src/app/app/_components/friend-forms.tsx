@@ -93,8 +93,15 @@ export function ArchivedToggle({ friends }: { friends: Friend[] }) {
   );
 }
 
+/** Telegram link state plus whether the bot can reach them privately (reminders need a started private chat). */
 export function TelegramStatus({ friend }: { friend: Friend }) {
-  return <span className="label">{friend.telegramUserId !== null ? "Telegram linked" : "Not linked"}</span>;
+  if (friend.telegramUserId === null) return <span className="label">Telegram not linked</span>;
+  const who = friend.telegramUsername ? `@${friend.telegramUsername}` : "Telegram linked";
+  return (
+    <span className="label">
+      {who} · {friend.privateChatStarted ? "private reminders on" : "group reminders only"}
+    </span>
+  );
 }
 
 export { Notice };

@@ -5,6 +5,8 @@ import { z } from "zod";
 
 import { hostNeverAbsorbs, MoneyError, splitReceipt, type SplitInput } from "@/domain";
 import { listFriends, saveSplit } from "@/server/db";
+import { notifySplit } from "@/server/telegram";
+import { TelegramNotConfiguredError } from "@/server/telegram/deps";
 
 import { requireHost } from "../_lib/host";
 import { refreshPaymentRequests } from "../_lib/payment-requests";
@@ -32,9 +34,17 @@ const PayloadSchema = z.object({
   treatedBy: z.string().min(1).nullable(),
   interpretation: z.unknown().optional(),
   expectedTotal: Cents,
+  telegramChatId: z.number().int().nullable().optional(),
 });
 
-export type SaveReceiptResult = { readonly ok: true; readonly receiptId: string } | { readonly ok: false; readonly error: string };
+export type SaveReceiptResult =
+  | {
+      readonly ok: true;
+      readonly receiptId: string;
+      /** Set when the split was saved but posting it to the Telegram group failed. */
+      readonly notifyError?: string;
+    }
+  | { readonly ok: false; readonly error: string };
 
 /**
  * Confirm: the server recomputes the split from the payload (authoritative),
@@ -85,6 +95,7 @@ export async function saveReceipt(raw: unknown): Promise<SaveReceiptResult> {
         source: payload.source,
         splitInput,
         interpretation: payload.interpretation,
+        telegramChatId: payload.telegramChatId ?? null,
       },
       split,
       friendMap,
@@ -104,5 +115,15 @@ export async function saveReceipt(raw: unknown): Promise<SaveReceiptResult> {
 
   revalidatePath("/app");
   revalidatePath("/app/friends");
+
+  const telegramChatId = payload.telegramChatId ?? null;
+  if (telegramChatId === null) return { ok: true, receiptId };
+  try {
+    await notifySplit({ hostId: host.id, receiptId, telegramChatId });
+  } catch (error) {
+    console.error("[saveReceipt] notifySplit", error);
+    const why = error instanceof TelegramNotConfiguredError ? "Telegram is not configured on this server." : "Telegram did not accept the post.";
+    return { ok: true, receiptId, notifyError: `The split is saved, but it was not posted to the group. ${why}` };
+  }
   return { ok: true, receiptId };
 }

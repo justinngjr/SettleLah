@@ -93,3 +93,38 @@ describe("ConfirmScreen", () => {
     expect(screen.getByText("Tea is Ben's")).toBeInTheDocument();
   });
 });
+
+describe("ConfirmScreen Telegram group picker", () => {
+  const chats = [{ telegramChatId: -1001, title: "Flatmates" }];
+
+  it("is hidden without linked groups and sends null", async () => {
+    const save = vi.fn().mockResolvedValue({ ok: true, receiptId: "r1" });
+    render(<Harness initial={baseDraft()} save={save} />);
+    expect(screen.queryByLabelText(/post to a telegram group/i)).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: /confirm and save/i }));
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({ telegramChatId: null }));
+  });
+
+  it("sends the chosen group with the payload", async () => {
+    const save = vi.fn().mockResolvedValue({ ok: true, receiptId: "r1" });
+    const onSaved = vi.fn();
+    render(<ConfirmScreen draft={baseDraft()} hostId={HOST} chats={chats} onChange={() => {}} onBack={() => {}} onSaved={onSaved} save={save as never} />);
+    await userEvent.selectOptions(screen.getByLabelText(/post to a telegram group/i), "-1001");
+    await userEvent.click(screen.getByRole("button", { name: /confirm and save/i }));
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({ telegramChatId: -1001 }));
+    expect(onSaved).toHaveBeenCalledWith("r1");
+  });
+
+  it("shows a non-blocking error when the post fails and lets the host continue", async () => {
+    const save = vi.fn().mockResolvedValue({ ok: true, receiptId: "r1", notifyError: "The split is saved, but it was not posted to the group." });
+    const onSaved = vi.fn();
+    render(<ConfirmScreen draft={baseDraft()} hostId={HOST} chats={chats} onChange={() => {}} onBack={() => {}} onSaved={onSaved} save={save as never} />);
+    await userEvent.selectOptions(screen.getByLabelText(/post to a telegram group/i), "-1001");
+    await userEvent.click(screen.getByRole("button", { name: /confirm and save/i }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/saved, but it was not posted/);
+    expect(onSaved).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: /confirm and save/i })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: /continue/i }));
+    expect(onSaved).toHaveBeenCalledWith("r1");
+  });
+});

@@ -20,6 +20,8 @@ export interface ReceiptFlowProps {
   readonly hostId: string;
   readonly hostName: string;
   readonly friends: ReadonlyArray<{ id: string; name: string }>;
+  /** Linked Telegram groups for the confirm screen's optional picker. */
+  readonly chats?: ReadonlyArray<{ telegramChatId: number; title: string | null }>;
 }
 
 type Step = { kind: "participants" } | { kind: "mode" } | { kind: "llm" } | { kind: "manual" } | { kind: "confirm" };
@@ -27,7 +29,7 @@ type Step = { kind: "participants" } | { kind: "mode" } | { kind: "llm" } | { ki
 const CHIP =
   "motion inline-flex min-h-12 cursor-pointer items-center gap-2 rounded-full border px-5 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-ink";
 
-export function ReceiptFlow({ hostId, hostName, friends }: ReceiptFlowProps) {
+export function ReceiptFlow({ hostId, hostName, friends, chats = [] }: ReceiptFlowProps) {
   const router = useRouter();
   const [step, setStep] = useState<Step>({ kind: "participants" });
   const [selected, setSelected] = useState<string[]>([]);
@@ -158,6 +160,7 @@ export function ReceiptFlow({ hostId, hostName, friends }: ReceiptFlowProps) {
         <ConfirmScreen
           draft={draft}
           hostId={hostId}
+          chats={chats}
           onChange={setDraft}
           onBack={() => setStep({ kind: draft.source === "llm" ? "llm" : "manual" })}
           onSaved={() => {

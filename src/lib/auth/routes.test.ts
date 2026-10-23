@@ -19,7 +19,7 @@ describe("route protection", () => {
   });
 
   it("opens only the self-verifying webhooks/cron under /api", () => {
-    expect(PUBLIC_API_ROUTES).toEqual(["/api/inbound-email", "/api/telegram/webhook", "/api/cron/reminders"]);
+    expect(PUBLIC_API_ROUTES).toEqual(["/api/inbound-email", "/api/telegram/webhook", "/api/cron/reminders", "/api/cron/recurring"]);
     expect(requiresHost("/api/inbound-email")).toBe(false);
     expect(requiresHost("/api/inbound-email-x")).toBe(true);
     expect(requiresHost("/api/reconcile/address")).toBe(true);
