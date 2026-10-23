@@ -39,6 +39,10 @@ Copy `.env.example` to `.env.local` and set:
 | `INBOUND_EMAIL_DOMAIN`          | Domain of the per-host forwarding addresses `<token>@<domain>` (server-only) |
 | `INBOUND_EMAIL_SECRET`          | Shared secret the email provider sends in `X-Inbound-Secret` to `POST /api/inbound-email` (server-only) |
 | `INBOUND_EMAIL_SENDER_ALLOWLIST`| Optional comma-separated domains/addresses accepted as the original bank sender; default `dbs.com` |
+| `TELEGRAM_BOT_TOKEN`            | Bot token from @BotFather (server-only). The Telegram routes answer 503 without it |
+| `TELEGRAM_BOT_USERNAME`         | The bot's @handle without the `@`; used to build `t.me` deep links |
+| `TELEGRAM_WEBHOOK_SECRET`       | Random secret Telegram echoes in `X-Telegram-Bot-Api-Secret-Token` on every webhook call |
+| `CRON_SECRET`                   | Bearer token Vercel Cron sends to `/api/cron/reminders` |
 
 `.env*.local` files are gitignored. The app builds without real values; they
 are only required at runtime when a Supabase client is created.
@@ -52,6 +56,7 @@ are only required at runtime when a Supabase client is created.
 | `pnpm typecheck` | `tsc --noEmit`                    |
 | `pnpm test`      | `vitest run`                      |
 | `pnpm build`     | Production build (`next build`)   |
+| `pnpm telegram:set-webhook <https-url>` | Registers `<url>/api/telegram/webhook` with Telegram using `TELEGRAM_BOT_TOKEN` / `TELEGRAM_WEBHOOK_SECRET` |
 
 CI (`.github/workflows/ci.yml`) runs two jobs on every push and pull
 request: `ci` (install with frozen lockfile, lint, typecheck, test, build) and

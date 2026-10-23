@@ -15,7 +15,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "e2e": "playwright test",
-    "screenshots": "SCREENSHOTS=1 playwright test"
+    "screenshots": "SCREENSHOTS=1 playwright test",
+    "telegram:set-webhook": "node scripts/telegram-set-webhook.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
