@@ -76,7 +76,8 @@ auth.users 1──* friends ──* ledger_events
 | `payment_requests` | "Please pay me X" with a human-safe reference for the PayNow QR / transfer. | `amount > 0`, `reference` unique `SL` + 6 chars from `23456789ABCDEFGHJKLMNPQRSTUVWXYZ`, `status` (`open`\|`paid`\|`cancelled`), `paid_at`, `cancelled_at` | PayNow, Telegram, Reminders |
 | `payment_claims` | A proposal that a request was paid (`friend_button` or `bank_alert`). Host confirms -> `confirm_payment_claim` inserts a `payment` event for the amount actually paid. | `amount` (> 0, nullable: null on a friend-button claim = request amount; bank-alert claims get `bank_alerts.amount` via trigger; set when confirmed), `status` (`pending`\|`confirmed`\|`rejected`), `bank_alert_id` required iff `source = 'bank_alert'`, `resolved_at` | Telegram, Bank alerts, Host UI |
 | `reminders` | Reminder schedule per open request. | `stage`, `next_at`, `snoozed_until`, `last_sent_at`, `channel` (`group`\|`private`) | Reminders (cron) |
-| `recurring_expenses` | Template for repeating shared costs (rent, Netflix). | `amount`, `cadence` (`monthly`\|`weekly`), `anchor_day`, `participants jsonb` (`[{friendId, weight}]`), `service_charge_bps`, `gst_bps`, `next_run_at`, `active` | Recurring (job runner creates `receipts`) |
+| `recurring_expenses` | Template for repeating shared costs (rent, Netflix). | `amount`, `cadence` (`monthly`\|`weekly`), `anchor_day`, `participants jsonb` (`[{id, weight}]`, `id` = friend id or the host's id), `telegram_chat_id?` (group to post each run to), `next_run_at`, `active` | Recurring (runner creates `receipts`) |
+| `recurring_runs` | One row per `(recurring_expense_id, period_key)`: the runner's idempotency key. | `period_key` (`YYYY-MM` monthly, `YYYY-MM-DD` weekly, Singapore calendar), `receipt_id?`, `ran_at`. Hosts read, only the service role writes; `on delete restrict` means an expense that has run cannot be deleted (pause it). | Recurring |
 | `bank_alerts` | Parsed incoming-transfer emails; the raw email is never stored. Idempotent on `raw_hash` (sha256 of from+subject+text) per host. | `bank`, `received_at`, `amount` (0 when ignored/unparsed), `payer_name`, `reference?`, `sender?`, `subject?`, `status` (`unmatched`\|`proposed`\|`confirmed`\|`ignored`), `reason?` (`sender_not_verified`, `unsupported_format`, `parse_failed`, `ambiguous`, `no_candidates`, `host_ignored`), `proposed_friend_id?`, `proposed_payment_request_id?` (both required when `proposed`), `match_confidence?` (`strong`\|`weak`), `match_reason?` | Bank alerts (parser + matcher), Host UI inbox |
 | `inbound_email_routes` | Secret token in the host's forwarding address (`<token>@...`). | `token` unique | Bank alerts (inbound webhook) |
 
@@ -97,6 +98,12 @@ execute them.
 | `save_split(p_receipt jsonb, p_shares jsonb)` | Atomically inserts the receipt, its shares and one `expense_share` event per friend with `amount > 0`. Validates host, share sum = total, at most one host share. Any failure inserts nothing. |
 | `confirm_payment_claim(claim_id, p_amount default null)` | Atomically: `payment` event for `coalesce(p_amount, claim.amount, request.amount)` (the host can correct the amount while confirming), claim `confirmed`, linked bank alert `confirmed`. The request becomes `paid` only when confirmed payments linked to it reach `request.amount`; only then are competing pending claims `rejected`. Underpayment leaves it `open` (further claims allowed, balance = remainder); overpayment makes the friend's balance negative, i.e. credit (`creditOf` in the domain). Returns the ledger event id. |
 | `reject_payment_claim(claim_id)` | Claim `rejected`; a linked proposed bank alert returns to `unmatched`. |
+| `run_recurring_expense(expense_id, period_key, p_receipt, p_shares, next_run_at)` | **Service role only.** Locks the expense, inserts the `recurring_runs` row (returns `null` and writes nothing if the period already ran), calls `save_split` with `recurringExpenseId` and the expense's `telegram_chat_id`, records the receipt on the run and advances `next_run_at`. One transaction. Refuses paused expenses and a `hostId` that does not own the expense. |
+
+Trigger functions (`handle_new_user`, `set_updated_at`, `ledger_events_immutable`,
+`payment_claims_default_amount`) have EXECUTE revoked from `public`, `anon` and
+`authenticated` (`20261023000650_harden_trigger_functions.sql`) so they are not
+reachable via `/rest/v1/rpc`; `supabase/tests/08_*.sql` asserts it.
 
 ## Data layer (`src/server/db/`)
 
@@ -115,6 +122,14 @@ tests pass a mock (`mock-client.test-helpers.ts`).
 - `payments.ts` — `createPaymentRequest` (reference generated client-side,
   retried on unique violation), `cancelPaymentRequest`, `createPaymentClaim`,
   `confirmPaymentClaim`, `rejectPaymentClaim`, listings.
+- `recurring.ts` — `listRecurring`, `getRecurring`, `createRecurring`,
+  `updateRecurring`, `pauseRecurring`, `resumeRecurring`, `deleteRecurring`
+  (refuses once there are runs), `listRecurringRuns`; for the runner
+  `listDueRecurring` (the one cross-host query) and `runRecurringExpense`
+  (the RPC). Validation (`RecurringInputError`) covers title, positive integer
+  cents, cadence/anchor ranges, participants owned by the host, linked group.
+  Creating / changing the schedule / resuming computes `next_run_at` with the
+  domain's `nextRunAt` from "now", so paused periods are never back-charged.
 - `database.types.ts` — generated by `supabase gen types typescript --local`;
   CI fails if it drifts from the migrations.
 
@@ -124,10 +139,39 @@ tests pass a mock (`mock-client.test-helpers.ts`).
   `listBalances`, `payment_claims` confirm/reject.
 - **PayNow**: QR payload from `profiles.paynow_*` + `payment_requests.reference`.
 - **Telegram bot + reminders**: done, see below.
-- **Recurring expenses**: job runner that turns due `recurring_expenses` into
-  `receipts` via `save_split` and advances `next_run_at`.
+- **Recurring expenses**: done, see "Recurring expenses" below.
 - **Bank alerts**: implemented in `src/server/reconcile/` + `src/domain/reconcile.ts`;
-  see "Bank-email reconciliation" below.
+  see "Bank-email reconciliation" below. The host UI (`/app/inbox`,
+  `/app/settings`) uses the same server functions through server actions
+  (`src/app/app/_actions/bank.ts`, `src/app/app/_lib/bank-proposals.ts`).
+
+## Recurring expenses (`src/server/recurring/`, `src/server/db/recurring.ts`)
+
+A recurring expense is a split that repeats on a schedule, so it uses the
+same balance system: each run is an ordinary receipt, every friend's share is
+an `expense_share` on the ledger (credit they hold is netted off by
+`outstandingRequest`), and anyone short gets the normal payment request and
+reminders. Nothing new is messaged.
+
+- Screens: `/app/recurring` (list), `/app/recurring/new`, `/app/recurring/[id]`
+  (edit, pause/resume, past runs). Amounts are entered in dollars and converted
+  with `fromDollars`; participants can carry weights; an optional linked
+  Telegram group is stored on the expense.
+- Runner `runDueRecurring(deps)`: for every active expense with
+  `next_run_at <= now`, compute `periodKeyFor(cadence, next_run_at)`, build the
+  shares with `recurringCharge` (host never absorbs the cent; archived friends
+  are dropped), call `run_recurring_expense` (atomic, idempotent), then
+  `refreshPaymentRequests` for the owing friends and, if a group is linked and
+  Telegram is configured, `notifySplit`. A failed post is reported in the
+  summary but the charge stands. One expense failing never stops the rest.
+- `GET /api/cron/recurring` (public in `PUBLIC_API_ROUTES`, requires
+  `Authorization: Bearer $CRON_SECRET`, constant-time), hourly in
+  `vercel.json`. Runs at 09:00 Singapore on the anchor day; monthly anchors
+  past a short month fall on its last day (`nextRunAt`).
+- Tests: `src/server/recurring/runner.test.ts` (idempotency, month-end
+  anchors, notify only with a group), `src/server/db/recurring.test.ts`,
+  `supabase/tests/07_recurring_runs.sql` (atomicity, cross-host, no delete
+  with runs, RLS), e2e in `e2e/smoke.spec.ts`.
 
 ## Bank-email reconciliation (`src/server/reconcile/`, `src/domain/reconcile.ts`)
 

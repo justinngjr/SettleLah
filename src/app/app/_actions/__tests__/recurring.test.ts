@@ -32,7 +32,8 @@ vi.mock("@/server/db", () => ({
   RecurringInputError,
 }));
 
-import { parseRecurringForm, saveRecurring, setRecurringActive } from "../recurring";
+import { parseRecurringForm } from "../../_lib/recurring-form";
+import { saveRecurring, setRecurringActive } from "../recurring";
 
 function form(entries: Record<string, string | string[]>): FormData {
   const fd = new FormData();

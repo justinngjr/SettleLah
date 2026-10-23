@@ -3,41 +3,15 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { fromDollars, MoneyError, type RecurringParticipant } from "@/domain";
+import { MoneyError } from "@/domain";
 import { createRecurring, pauseRecurring, RecurringInputError, resumeRecurring, updateRecurring, type NewRecurringExpense } from "@/server/db";
 
 import { requireHost } from "../_lib/host";
+import { parseRecurringForm } from "../_lib/recurring-form";
 
 export interface RecurringFormState {
   readonly error?: string;
   readonly ok?: boolean;
-}
-
-function readInt(value: FormDataEntryValue | null, fallback: number): number {
-  const text = String(value ?? "").trim();
-  if (text === "") return fallback;
-  const n = Number(text);
-  return Number.isSafeInteger(n) ? n : fallback;
-}
-
-/** Form -> repository input. Validation of ranges and ownership happens in the repository. */
-export function parseRecurringForm(formData: FormData): NewRecurringExpense {
-  const amount = fromDollars(String(formData.get("amount") ?? ""));
-  const cadence = String(formData.get("cadence") ?? "monthly") as NewRecurringExpense["cadence"];
-  const anchorDay = readInt(formData.get("anchorDay"), NaN);
-  const participants: RecurringParticipant[] = [];
-  for (const id of formData.getAll("participant").map(String)) {
-    participants.push({ id, weight: readInt(formData.get(`weight_${id}`), 1) });
-  }
-  const chat = String(formData.get("telegramChatId") ?? "").trim();
-  return {
-    title: String(formData.get("title") ?? ""),
-    amount,
-    cadence,
-    anchorDay,
-    participants,
-    telegramChatId: chat === "" ? null : Number(chat),
-  };
 }
 
 function explain(error: unknown): string {
