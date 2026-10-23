@@ -1,8 +1,17 @@
 # `src/domain/`
 
-Pure TypeScript business logic for SettleLah (bill splitting, Singapore
-service charge + GST, running balances, etc. — to be written in later
-sessions).
+Pure TypeScript business logic for SettleLah. "Code handles the money; AI
+only interprets": every amount is an integer number of cents and there is no
+floating-point arithmetic on money anywhere in this directory.
+
+| Module        | Responsibility                                                          |
+| ------------- | ----------------------------------------------------------------------- |
+| `money.ts`    | `Cents` type, validation, `fromDollars("12.34")`, `formatSGD(cents)`     |
+| `charges.ts`  | Service charge then GST (basis points, half-up per line), receipt lines  |
+| `split.ts`    | Allocates the receipt total across participants, exact to the cent; exclusions need an explicit `redistribute` mode |
+| `rounding.ts` | `allocateRemainder`: the single place that decides who gets leftover cents |
+| `balances.ts` | Host ↔ friend ledger: shares, payments, credit, friend-fronted           |
+| `rational.ts` | Internal exact `bigint` rationals used by `split.ts`                     |
 
 ## The rule
 
