@@ -15,11 +15,13 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "e2e": "playwright test",
-    "screenshots": "SCREENSHOTS=1 playwright test"
+    "screenshots": "SCREENSHOTS=1 playwright test",
+    "telegram:set-webhook": "node scripts/telegram-set-webhook.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.118.0",
+    "grammy": "^1.46.0",
     "next": "16.4.3",
     "openai": "^7.43.0",
     "qrcode": "^1.5.4",

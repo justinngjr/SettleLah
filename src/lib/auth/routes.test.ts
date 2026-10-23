@@ -18,11 +18,14 @@ describe("route protection", () => {
     expect(requiresHost("/application")).toBe(false);
   });
 
-  it("opens only the inbound-email webhook under /api (it verifies its own secret)", () => {
-    expect(PUBLIC_API_ROUTES).toEqual(["/api/inbound-email"]);
+  it("opens only the self-verifying webhooks/cron under /api", () => {
+    expect(PUBLIC_API_ROUTES).toEqual(["/api/inbound-email", "/api/telegram/webhook", "/api/cron/reminders"]);
     expect(requiresHost("/api/inbound-email")).toBe(false);
     expect(requiresHost("/api/inbound-email-x")).toBe(true);
     expect(requiresHost("/api/reconcile/address")).toBe(true);
+    expect(requiresHost("/api/telegram/webhook")).toBe(false);
+    expect(requiresHost("/api/cron/reminders")).toBe(false);
+    expect(requiresHost("/api/interpret")).toBe(true);
   });
 
   it("only accepts same-origin relative next paths", () => {

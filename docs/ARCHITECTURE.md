@@ -123,9 +123,7 @@ tests pass a mock (`mock-client.test-helpers.ts`).
 - **Host UI**: pages over `friends`, `receipts`/`receipt_shares`,
   `listBalances`, `payment_claims` confirm/reject.
 - **PayNow**: QR payload from `profiles.paynow_*` + `payment_requests.reference`.
-- **Telegram bot**: service-role worker; links `telegram_chats`, fills
-  `friends.telegram_user_id`, posts requests, creates `friend_button` claims.
-- **Reminders**: cron over `reminders` for `open` requests.
+- **Telegram bot + reminders**: done, see below.
 - **Recurring expenses**: job runner that turns due `recurring_expenses` into
   `receipts` via `save_split` and advances `next_run_at`.
 - **Bank alerts**: implemented in `src/server/reconcile/` + `src/domain/reconcile.ts`;
@@ -204,3 +202,77 @@ Host UI (Session E) wiring: show `GET /alerts` as the inbox; a `proposed` row
 renders the friend/request with `matchConfidence`/`matchReason` and a confirm
 button; an `unmatched` row shows `reason` and lets the host pick a request
 (`reassign` or `confirm` with `paymentRequestId`) or `ignore`.
+
+## Telegram bot and reminder cron (`src/server/telegram/`)
+
+Friends never sign up: everything they do happens in Telegram. The bot runs
+with the service role, and every query filters by the host resolved from the
+link token, the linked group chat (`telegram_chats`) or the host's own
+`profiles.telegram_user_id`. Two things always wait for one host tap before
+anything changes: binding a Telegram user to a friend, and every "I've paid".
+
+### Schema added (`20261023000500_telegram_links.sql`)
+
+- `profiles.telegram_user_id` (unique) / `telegram_username`: the host's own
+  Telegram account, so the bot can DM approval prompts.
+- `telegram_link_tokens`: deep-link tokens stored as `sha256` hex
+  (`token_hash`), `kind` `host` | `group` | `friend`, `expires_at`
+  (24 h for host/group, 30 days for the friend link on a split message),
+  `single_use` (host/group) consumed with a conditional update on `used_at`.
+- `telegram_binding_requests`: "@user says they are Sarah", `status`
+  `pending` | `approved` | `rejected`, `via_private_chat`, `host_message_id`
+  (null = queued for the web inbox because the host has no Telegram DM yet).
+- `payment_requests.receipt_id` (same-host FK) so a split's requests and
+  group chat can be found again; `reminders.escalated_at` so the host is
+  told exactly once.
+
+### Server functions for the host UI (`src/server/telegram/index.ts`)
+
+All take the signed-in host's id first and an optional `TelegramDeps`
+(defaults to `depsFromEnv()`: service client + real Bot API; tests inject a
+fake db and a grammY API transformer). They throw
+`TelegramNotConfiguredError` when the Telegram env is unset.
+
+| Function | Returns / effect |
+| --- | --- |
+| `createHostLinkToken(hostId)` | `https://t.me/<bot>?start=host_<token>`; the host opens it once to link their own Telegram user |
+| `createGroupLinkToken(hostId)` | `https://t.me/<bot>?startgroup=grp_<token>`; adding the bot to a group with it links the group to the host |
+| `listLinkedChats(hostId)` | `LinkedChat[]` (`telegramChatId`, `title`, `linkedAt`) |
+| `notifySplit({ hostId, receiptId, telegramChatId })` | Posts the split to a linked group: one summary message (title, total, each share, `tg://user?id=` mention when bound, "That's me (Name)" button per unbound friend, "Get private reminders" URL button) and then, per friend who owes, the PayNow QR (PNG from `buildPayNowPayload` via `qrcode`) with "I've paid" / "Remind me later" — privately when `private_chat_started`, else as a reply in the group. Creates the `open` payment requests for the receipt's shares if the host has not, sets `receipts.telegram_chat_id`, and records reminder stage 0 as sent |
+| `listPendingBindings(hostId)` | Binding requests waiting for the host (for the web inbox when the host has no Telegram) |
+| `approveBinding(hostId, bindingId)` / `rejectBinding(hostId, bindingId)` | Same as the Approve / Reject buttons: approve sets `friends.telegram_user_id` (+ `private_chat_started` if the friend came via a private `/start`); reject changes nothing |
+
+Pending `friend_button` claims from "I've paid" already surface through
+`listPendingClaims`; confirming them from the web uses `confirmPaymentClaim`.
+
+### Routes, env, cron
+
+- `POST /api/telegram/webhook` (public in `PUBLIC_API_ROUTES`): 503 until
+  `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `TELEGRAM_WEBHOOK_SECRET`
+  are set; 401 unless `X-Telegram-Bot-Api-Secret-Token` matches
+  (constant-time). Register with `pnpm telegram:set-webhook <public-url>`.
+- `GET /api/cron/reminders` (public, requires `Authorization: Bearer
+  $CRON_SECRET`), scheduled every 15 minutes in `vercel.json`. For each
+  `open` request it loads/creates the `reminders` row, asks the domain
+  (`nextReminder`) and acts: `send` (copy from `reminderMessage`, QR again
+  only on stage 0, persisted with `afterSent`), `paused` (pending claim),
+  `done`, `escalate_to_host` (one DM, guarded by `escalated_at`). Concurrent
+  runs are safe: a send is only performed after a compare-and-set on
+  `(stage, last_sent_at)` succeeds.
+- A 403 from Telegram when DMing a friend sets `private_chat_started =
+  false` and falls back to the group for that message and later ones.
+
+### Bot interactions
+
+- `/start host_<token>` (private) links the host; queued binding prompts are
+  then delivered. `/start grp_<token>` (in a group) links the group.
+- `/start fr_<token>` (private, from the split message) either turns on
+  private reminders for an already-bound friend or offers "That's me" buttons
+  for the unbound friends on that receipt.
+- "That's me" (group or private) -> host DM "Link @user to Sarah? [Approve]
+  [Reject]"; the friend record is untouched until Approve.
+- "I've paid" -> `createPaymentClaim` (`friend_button`, amount null = request
+  amount) + host DM [Confirm] [Not received] -> `confirmPaymentClaim` (one
+  `payment` ledger event) / `rejectPaymentClaim`. "Remind me later" ->
+  `afterSnooze`. Only the bound friend (`from.id`) can act on a request;
+  anyone else gets a toast.

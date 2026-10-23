@@ -13,7 +13,7 @@ export const AUTH_ROUTES: readonly string[] = ["/login", "/auth/callback", "/aut
  * `/api/inbound-email`), which must then verify their own secret. Everything
  * else under `/api` requires a signed-in host.
  */
-export const PUBLIC_API_ROUTES: readonly string[] = ["/api/inbound-email"];
+export const PUBLIC_API_ROUTES: readonly string[] = ["/api/inbound-email", "/api/telegram/webhook", "/api/cron/reminders"];
 
 function matches(pathname: string, route: string): boolean {
   return pathname === route || pathname.startsWith(`${route}/`);
