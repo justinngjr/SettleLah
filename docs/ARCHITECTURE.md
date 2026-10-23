@@ -211,7 +211,7 @@ link token, the linked group chat (`telegram_chats`) or the host's own
 `profiles.telegram_user_id`. Two things always wait for one host tap before
 anything changes: binding a Telegram user to a friend, and every "I've paid".
 
-### Schema added (`20261023000400_telegram_links.sql`)
+### Schema added (`20261023000500_telegram_links.sql`)
 
 - `profiles.telegram_user_id` (unique) / `telegram_username`: the host's own
   Telegram account, so the bot can DM approval prompts.
