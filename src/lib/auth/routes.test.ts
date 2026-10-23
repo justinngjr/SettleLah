@@ -18,8 +18,11 @@ describe("route protection", () => {
     expect(requiresHost("/application")).toBe(false);
   });
 
-  it("allows nothing under /api yet", () => {
-    expect(PUBLIC_API_ROUTES).toEqual([]);
+  it("opens only the inbound-email webhook under /api (it verifies its own secret)", () => {
+    expect(PUBLIC_API_ROUTES).toEqual(["/api/inbound-email"]);
+    expect(requiresHost("/api/inbound-email")).toBe(false);
+    expect(requiresHost("/api/inbound-email-x")).toBe(true);
+    expect(requiresHost("/api/reconcile/address")).toBe(true);
   });
 
   it("only accepts same-origin relative next paths", () => {

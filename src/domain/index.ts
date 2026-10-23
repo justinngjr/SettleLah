@@ -140,3 +140,20 @@ export {
   type RecurringChargeInput,
   type RecurringParticipant,
 } from "./recurring";
+
+export {
+  canAutoConfirm,
+  isKnownBankName,
+  matchBankAlert,
+  normaliseBankName,
+  referenceMatches,
+  referenceTokens,
+  type AlertForMatch,
+  type FriendForMatch,
+  type MatchCandidate,
+  type MatchConfidence,
+  type MatchProposal,
+  type MatchReason,
+  type OpenRequestForMatch,
+  type UnmatchedReason,
+} from "./reconcile";

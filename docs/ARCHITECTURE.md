@@ -77,7 +77,7 @@ auth.users 1──* friends ──* ledger_events
 | `payment_claims` | A proposal that a request was paid (`friend_button` or `bank_alert`). Host confirms -> `confirm_payment_claim` inserts a `payment` event for the amount actually paid. | `amount` (> 0, nullable: null on a friend-button claim = request amount; bank-alert claims get `bank_alerts.amount` via trigger; set when confirmed), `status` (`pending`\|`confirmed`\|`rejected`), `bank_alert_id` required iff `source = 'bank_alert'`, `resolved_at` | Telegram, Bank alerts, Host UI |
 | `reminders` | Reminder schedule per open request. | `stage`, `next_at`, `snoozed_until`, `last_sent_at`, `channel` (`group`\|`private`) | Reminders (cron) |
 | `recurring_expenses` | Template for repeating shared costs (rent, Netflix). | `amount`, `cadence` (`monthly`\|`weekly`), `anchor_day`, `participants jsonb` (`[{friendId, weight}]`), `service_charge_bps`, `gst_bps`, `next_run_at`, `active` | Recurring (job runner creates `receipts`) |
-| `bank_alerts` | Parsed incoming-transfer emails. Idempotent on `raw_hash` (sha256 of the raw email) per host. | `bank`, `received_at`, `amount`, `payer_name`, `reference?`, `status` (`unmatched`\|`proposed`\|`confirmed`\|`ignored`), `proposed_friend_id?`, `proposed_payment_request_id?` | Bank alerts (parser + matcher) |
+| `bank_alerts` | Parsed incoming-transfer emails; the raw email is never stored. Idempotent on `raw_hash` (sha256 of from+subject+text) per host. | `bank`, `received_at`, `amount` (0 when ignored/unparsed), `payer_name`, `reference?`, `sender?`, `subject?`, `status` (`unmatched`\|`proposed`\|`confirmed`\|`ignored`), `reason?` (`sender_not_verified`, `unsupported_format`, `parse_failed`, `ambiguous`, `no_candidates`, `host_ignored`), `proposed_friend_id?`, `proposed_payment_request_id?` (both required when `proposed`), `match_confidence?` (`strong`\|`weak`), `match_reason?` | Bank alerts (parser + matcher), Host UI inbox |
 | `inbound_email_routes` | Secret token in the host's forwarding address (`<token>@...`). | `token` unique | Bank alerts (inbound webhook) |
 
 Every table has `host_id` indexes plus the lookups each flow needs
@@ -128,6 +128,79 @@ tests pass a mock (`mock-client.test-helpers.ts`).
 - **Reminders**: cron over `reminders` for `open` requests.
 - **Recurring expenses**: job runner that turns due `recurring_expenses` into
   `receipts` via `save_split` and advances `next_run_at`.
-- **Bank alerts**: inbound-email webhook keyed by `inbound_email_routes.token`,
-  parser -> `bank_alerts`, matcher that proposes a friend/request and creates a
-  `bank_alert` claim for the host to confirm.
+- **Bank alerts**: implemented in `src/server/reconcile/` + `src/domain/reconcile.ts`;
+  see "Bank-email reconciliation" below.
+
+## Bank-email reconciliation (`src/server/reconcile/`, `src/domain/reconcile.ts`)
+
+Trust first: the app never logs into a bank or reads a mailbox. The host sets
+up a Gmail/Outlook filter that forwards only DBS/POSB incoming-transfer alert
+emails to `<token>@INBOUND_EMAIL_DOMAIN` (`inbound_email_routes.token`). An
+email provider (Cloudflare Email Workers / Postmark / Mailgun; mapping in the
+README) POSTs each forwarded message to the webhook. Confirm before acting: a
+parsed alert is a *proposal* and nothing hits the ledger until the host taps
+confirm, except the opt-in auto-confirm case below.
+
+Per-host setting: `profiles.auto_confirm_bank_alerts boolean default false`
+(migration `20261023000400_reconcile_settings.sql`, which also adds the
+`bank_alerts` columns `sender`, `subject`, `reason`, `match_confidence`,
+`match_reason` and the "proposed needs friend + request" check).
+
+### Pipeline (`ingestInboundEmail`)
+
+1. `X-Inbound-Secret` is compared in constant time with `INBOUND_EMAIL_SECRET`
+   (401), the body is validated (400). 503 when the env vars are unset.
+2. The token is the local part of the recipient at `INBOUND_EMAIL_DOMAIN`;
+   `inbound_email_routes` (not revoked) gives the `host_id`. This is the only
+   query not filtered by host; every later query is `.eq("host_id", hostId)`
+   even though the webhook uses the service role. Unknown token -> 404.
+3. `raw_hash = sha256(from + "\n" + subject + "\n" + text)`; an existing
+   `(host_id, raw_hash)` row is returned as `duplicate` (also on a racing
+   insert). The raw email is never stored, only parsed fields + sender + subject + hash.
+4. Sender verification: the original sender must be at an allowlisted domain
+   (`INBOUND_EMAIL_SENDER_ALLOWLIST`, default `dbs.com`), found in `from`
+   (filter auto-forward keeps the bank as sender), in `x-original-sender` /
+   `x-original-from` / `reply-to` / `resent-sender` headers, or in the first
+   `From:` line of a manually forwarded block. Otherwise -> `ignored` /
+   `sender_not_verified` with `amount = 0`.
+5. Parser: `BankAlertParser { bank, canParse(email), parse(email) -> { amount: Cents, payerName, reference?, receivedAt } }`;
+   `dbsParser` covers DBS and POSB (both send from `dbs.com`). Amounts go
+   through the domain `fromDollars` (no floats). No parser -> `ignored` /
+   `unsupported_format`; parse failure -> `unmatched` / `parse_failed`.
+   Never a 500 for a bad email.
+6. Matcher `matchBankAlert(alert, openRequests, friends)` (pure, `src/domain/reconcile.ts`):
+   (a) `reference`: the alert's free-text reference contains an open request's
+   `SLxxxxxx` reference as a token -> strong; (b) `known_name_and_amount`: payer
+   name (normalised: caps, punctuation stripped) is in a friend's
+   `known_bank_names` and that friend has an open request for exactly the
+   amount -> strong; (c) `amount_only`: exactly one open request for the amount
+   -> weak. Two or more hits in the deciding tier -> `unmatched` / `ambiguous`
+   (`match_reason` = the tier); the host picks. No hit -> `no_candidates`.
+7. Auto-confirm (`canAutoConfirm`): only when the proposal came from tier (a),
+   the amount equals the request amount exactly, and the payer name is already
+   in that friend's `known_bank_names`; and only if the host's
+   `auto_confirm_bank_alerts` is on. It then runs the same confirm path as the
+   host's tap.
+
+### Host endpoints (session cookie; RLS client + explicit host filter)
+
+All return `{ error: { code, message, details? } }` on failure with codes
+`unauthenticated` 401, `invalid_json`/`invalid_input` 400, `not_found` 404,
+`invalid_state` 409, `not_configured` 503, `internal_error` 500.
+
+| Endpoint | Request | Response |
+| -------- | ------- | -------- |
+| `GET /api/reconcile/address` | – | `{ address, token, domain, createdAt, configured }`; creates the route on first call. 503 if `INBOUND_EMAIL_DOMAIN` is unset. |
+| `GET /api/reconcile/alerts` | `?status=proposed,unmatched` (default) `&limit=50` | `{ alerts: BankAlert[] }` newest first. `BankAlert` = camelCase of the row: `id, bank, receivedAt, amount, payerName, reference, sender, subject, status, reason, proposedFriendId, proposedPaymentRequestId, matchConfidence, matchReason, createdAt`. |
+| `POST /api/reconcile/alerts/:id/confirm` | `{ paymentRequestId? }` (defaults to the proposed request; required for an unmatched alert) | `{ alert, claimId, ledgerEventId, paymentRequest }`. Creates a `payment_claims` row (`source = bank_alert`, `bank_alert_id`, `amount` = alert amount) and calls `confirm_payment_claim(claim, alert.amount)`: exactly one `payment` ledger event for the actual amount, alert `confirmed`, request `paid` only when covered (underpayment stays `open`, overpayment becomes credit). Then appends `payer_name` to the friend's `known_bank_names`. |
+| `POST /api/reconcile/alerts/:id/reassign` | `{ paymentRequestId }` (must be `open`) | `{ alert }` now `proposed` for that request's friend, `match_reason = "host"`. No ledger write. |
+| `POST /api/reconcile/alerts/:id/ignore` | `{ reason? }` | `{ alert }` with status `ignored`, `reason` default `host_ignored`. Hash kept so a re-delivery stays a duplicate. |
+| `GET /api/reconcile/settings` / `PATCH` | `{ autoConfirmBankAlerts }` | `{ autoConfirmBankAlerts }` |
+
+Webhook: `POST /api/inbound-email` (public, in `PUBLIC_API_ROUTES`) ->
+`{ outcome: "duplicate" | "ignored" | "unmatched" | "proposed" | "confirmed", alertId, ledgerEventId? }`.
+
+Host UI (Session E) wiring: show `GET /alerts` as the inbox; a `proposed` row
+renders the friend/request with `matchConfidence`/`matchReason` and a confirm
+button; an `unmatched` row shows `reason` and lets the host pick a request
+(`reassign` or `confirm` with `paymentRequestId`) or `ignore`.

@@ -36,6 +36,9 @@ Copy `.env.example` to `.env.local` and set:
 | `LLM_API_KEY`                   | API key for that provider (server-only) |
 | `LLM_MODEL`                     | Primary model name (server-only) |
 | `LLM_FALLBACK_MODEL`            | Optional second model tried once if the primary fails (server-only) |
+| `INBOUND_EMAIL_DOMAIN`          | Domain of the per-host forwarding addresses `<token>@<domain>` (server-only) |
+| `INBOUND_EMAIL_SECRET`          | Shared secret the email provider sends in `X-Inbound-Secret` to `POST /api/inbound-email` (server-only) |
+| `INBOUND_EMAIL_SENDER_ALLOWLIST`| Optional comma-separated domains/addresses accepted as the original bank sender; default `dbs.com` |
 
 `.env*.local` files are gitignored. The app builds without real values; they
 are only required at runtime when a Supabase client is created.
@@ -94,6 +97,51 @@ public. Friends never have accounts.
 participant id is their auth user id, taken from the session; a client-sent
 `hostId` is ignored, and the participants list must include the host.
 
+### Bank-email reconciliation
+
+The app never logs into a bank or reads a mailbox. The host creates a Gmail /
+Outlook filter that forwards *only* DBS/POSB incoming-transfer alert emails to
+their secret address (`GET /api/reconcile/address`); an email provider turns
+each forwarded message into one `POST /api/inbound-email`. Parsed alerts become
+*proposals* the host confirms in one tap. Endpoints, statuses and the matching
+rules are documented in `docs/ARCHITECTURE.md` ("Bank-email reconciliation").
+
+| Route | What it does |
+| ----- | ------------ |
+| `POST /api/inbound-email` | Public webhook (shared secret). Body `{ to, from, subject, text, html?, headers? }`. Resolves the host from the `to` token, verifies the original sender, parses, matches, stores a `bank_alerts` row. Idempotent on sha256(from+subject+text). |
+| `GET /api/reconcile/address` | The signed-in host's forwarding address (token created on first call). |
+| `GET /api/reconcile/alerts` | Alerts awaiting a decision (`?status=proposed,unmatched` default; `confirmed`/`ignored` for history). |
+| `POST /api/reconcile/alerts/:id/confirm` | One tap: `payment_claims` row + `confirm_payment_claim` = exactly one `payment` ledger event for the alert amount; remembers the payer name. |
+| `POST /api/reconcile/alerts/:id/reassign` | Point the proposal at another open request `{ paymentRequestId }`. |
+| `POST /api/reconcile/alerts/:id/ignore` | Dismiss `{ reason? }`. |
+| `GET/PATCH /api/reconcile/settings` | `{ autoConfirmBankAlerts }`, default `false`. |
+
+Provider mapping for the webhook body (configure the provider to add the
+header `X-Inbound-Secret: $INBOUND_EMAIL_SECRET`; extra fields are ignored):
+
+| Field | Cloudflare Email Workers | Postmark inbound | Mailgun routes (`store()`/forward JSON) |
+| ----- | ------------------------ | ---------------- | --------------------------------------- |
+| `to` | `message.to` | `ToFull[].Email` or `To` | `recipient` |
+| `from` | `message.from` | `From` | `sender` (envelope) or `from` |
+| `subject` | header `Subject` | `Subject` | `subject` |
+| `text` | body stream decoded (e.g. with `postal-mime`) `.text` | `TextBody` | `body-plain` |
+| `html` | `.html` | `HtmlBody` | `body-html` |
+| `headers` | `Object.fromEntries(message.headers)` | `Headers[]` folded to `{ [Name.toLowerCase()]: Value }` | `message-headers` (JSON array of `[name, value]`) folded the same way |
+
+The sender check looks at `from`, then `x-original-sender` / `x-original-from` /
+`reply-to` / `resent-sender` headers, then the first `From:` line of a
+forwarded block in the body. Only addresses at an allowlisted domain
+(`INBOUND_EMAIL_SENDER_ALLOWLIST`, default `dbs.com`) count; anything else is
+stored as `ignored` / `sender_not_verified`.
+
+The DBS/POSB parser is built against *unverified* wording (see
+`src/server/reconcile/parsers/dbs.ts` and its fixtures): it needs an amount
+written `SGD 12.34` / `S$12.34` / `SGD1,234.50`, a payer line such as
+`Payer's Name: ROBERT TAN` / `From: ...` or `... from NAME IN CAPS`, and
+optionally `Reference:` / `Other info:` / `Transaction Ref:`. Check these
+phrases against a real alert; unknown formats are stored as `unmatched` /
+`parse_failed` for the host to handle manually.
+
 ## Branches
 
 - `develop` is the integration branch. Feature branches are opened as PRs
@@ -107,7 +155,7 @@ participant id is their auth user id, taken from the session; a client-sent
 src/
   app/            Next.js App Router routes and layouts
   domain/         Pure TypeScript business logic (see rule below)
-  server/         Server-only modules: db/ (typed data layer), auth/, interpret/ (LLM)
+  server/         Server-only modules: db/ (typed data layer), auth/, interpret/ (LLM), reconcile/ (bank emails)
   lib/auth/       Route protection allowlist (pure)
   lib/supabase/   Supabase client helpers (browser, server, proxy)
   proxy.ts        Next.js proxy: session refresh + route guard
