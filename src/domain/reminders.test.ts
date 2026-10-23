@@ -85,11 +85,28 @@ describe("nextReminder timelines", () => {
     expect(nextReminder(base, SPLIT)).toEqual(send("2026-03-06T19:30", 0));
   });
 
-  it("stage 0 for a late-night split waits for 10:00 the next morning", () => {
-    const late = createReminderState({ splitAt: sgt("2026-03-06T23:15") });
-    expect(nextReminder(late, sgt("2026-03-06T23:15"))).toEqual(wait("2026-03-07T10:00"));
-    expect(nextReminder(late, sgt("2026-03-07T09:59"))).toEqual(wait("2026-03-07T10:00"));
-    expect(nextReminder(late, sgt("2026-03-07T10:00"))).toEqual(send("2026-03-07T10:00", 0, "group"));
+  it("stage 0 is the host's split message: a 23:00 split sends at 23:00, stage 1 respects quiet hours", () => {
+    const late = createReminderState({ splitAt: sgt("2026-03-06T23:00") });
+    expect(nextReminder(late, sgt("2026-03-06T23:00"))).toEqual(send("2026-03-06T23:00", 0, "group"));
+    const stage1 = afterSent(late, sgt("2026-03-06T23:00"));
+    // nominal Sun 8 Mar 23:00 is in quiet hours -> Mon 9 Mar 10:00
+    expect(nextReminder(stage1, sgt("2026-03-08T23:00"))).toEqual(wait("2026-03-09T10:00"));
+    expect(nextReminder(stage1, sgt("2026-03-09T09:59"))).toEqual(wait("2026-03-09T10:00"));
+    expect(nextReminder(stage1, sgt("2026-03-09T10:00"))).toEqual(send("2026-03-09T10:00", 1, "group"));
+  });
+
+  it("stage 0 sends immediately at every hour of the day", () => {
+    for (let hour = 0; hour < 24; hour++) {
+      const splitAt = sgt(`2026-03-06T${String(hour).padStart(2, "0")}:30`);
+      expect(nextReminder(createReminderState({ splitAt }), splitAt)).toMatchObject({ kind: "send", stage: 0, at: splitAt });
+    }
+  });
+
+  it("a snoozed stage 0 does respect quiet hours", () => {
+    const late = createReminderState({ splitAt: sgt("2026-03-06T23:00") });
+    const snoozed = afterSnooze(late, sgt("2026-03-06T23:05")); // -> 7 Mar 23:05, quiet -> 8 Mar 10:00
+    expect(dueAt(snoozed).getTime()).toBe(sgt("2026-03-08T10:00").getTime());
+    expect(nextReminder(snoozed, sgt("2026-03-07T23:05"))).toEqual(wait("2026-03-08T10:00"));
   });
 
   it("uses the group channel until the friend opens a private chat", () => {
@@ -128,11 +145,11 @@ describe("nextReminder timelines", () => {
 
   it("a weekly stage landing in quiet hours moves to the next 10:00", () => {
     const night = createReminderState({ splitAt: sgt("2026-03-06T21:00"), hasPrivateChat: true });
-    // stage 0 -> Sat 10:00; stage 1 nominal Sun 21:00 -> Mon 10:00; stage 2 nominal Sun 15 Mar 21:00 -> Mon 16 Mar 10:00
+    // stage 0 -> Fri 21:00 immediately; stage 1 nominal Sun 21:00 -> Mon 10:00; stage 2 nominal Sun 15 Mar 21:00 -> Mon 16 Mar 10:00
     let state = night;
-    const d0 = nextReminder(state, sgt("2026-03-07T10:00"));
-    expect(d0).toEqual(send("2026-03-07T10:00", 0));
-    state = afterSent(state, sgt("2026-03-07T10:00"));
+    const d0 = nextReminder(state, sgt("2026-03-06T21:00"));
+    expect(d0).toEqual(send("2026-03-06T21:00", 0));
+    state = afterSent(state, sgt("2026-03-06T21:00"));
     expect(nextReminder(state, sgt("2026-03-08T21:00"))).toEqual(wait("2026-03-09T10:00"));
     const d1 = nextReminder(state, sgt("2026-03-09T10:00"));
     expect(d1).toEqual(send("2026-03-09T10:00", 1));

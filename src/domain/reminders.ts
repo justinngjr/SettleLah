@@ -114,10 +114,16 @@ function laterOf(a: Date, b: Date | undefined): Date {
   return b !== undefined && b.getTime() > a.getTime() ? b : a;
 }
 
-/** When the pending stage is actually due: nominal time, pushed by any snooze, then into the send window. */
+/**
+ * When the pending stage is actually due: nominal time, pushed by any snooze,
+ * then into the send window. Stage 0 is the host-initiated split message and
+ * goes out immediately whatever the hour; quiet hours apply to automated
+ * nudges (stage >= 1) and to anything that was snoozed.
+ */
 export function dueAt(state: ReminderState): Date {
   assertReminderState(state);
   const nominal = laterOf(scheduledAt(state.splitAt, state.stage), state.snoozedUntil);
+  if (state.stage === 0 && state.snoozedUntil === undefined) return nominal;
   return nextSendWindow(nominal);
 }
 
@@ -125,7 +131,8 @@ export function dueAt(state: ReminderState): Date {
  * Decides what the scheduler should do at `now`.
  *
  * - paid / cancelled -> `done`; a pending payment claim -> `paused`.
- * - stages 0..6 -> `send` once due (quiet hours and snooze applied), else `wait`.
+ * - stage 0 -> `send` as soon as the bill is split (no quiet hours).
+ * - stages 1..6 -> `send` once due (quiet hours and snooze applied), else `wait`.
  * - after stage 6, when the next weekly slot comes round unpaid -> `escalate_to_host`
  *   (the friend got a week to act on the final reminder first).
  */
