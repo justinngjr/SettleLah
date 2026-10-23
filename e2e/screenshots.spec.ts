@@ -7,7 +7,7 @@
 import { test, type Browser } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 
-import { signInAsNewHost } from "./auth";
+import { adminClient, signInAsNewHost } from "./auth";
 
 test.setTimeout(240_000);
 
@@ -15,12 +15,85 @@ const base = process.env.E2E_BASE_URL ?? "http://localhost:3000";
 const out = process.env.SCREENSHOT_DIR ?? "test-results/screens";
 mkdirSync(out, { recursive: true });
 
+const SPLIT_PREVIEW = {
+  title: "Save split: Friday dinner at Ah Hua",
+  summary: "Saves the receipt and records what each person owes; open payment requests are updated for 2 friends.",
+  rows: [
+    { label: "Subtotal", value: "$105.50" },
+    { label: "Service charge", value: "$10.55" },
+    { label: "GST", value: "$10.44" },
+    { label: "Total", value: "$126.49", strong: true },
+  ],
+  shares: [
+    { participantId: "host", name: "You", amount: "$45.80", paysNothing: false },
+    { participantId: "sarah", name: "Sarah", amount: "$34.89", paysNothing: false },
+    { participantId: "ben", name: "Ben", amount: "$45.80", paysNothing: false },
+  ],
+  openInApp: "/app",
+};
+
+async function seedAgentConversation(hostId: string): Promise<string> {
+  const admin = adminClient();
+  const conversation = await admin.from("agent_conversations").insert({ host_id: hostId, title: "Split this receipt, Sarah skipped drinks" }).select("id").single();
+  if (conversation.error) throw conversation.error;
+  const id = conversation.data.id as string;
+  const messages = [
+    { role: "user", content: "Split this receipt, Sarah skipped drinks" },
+    { role: "assistant", content: "", tool_calls: [{ id: "call_1", name: "save_split", arguments: "{}" }] },
+    { role: "tool", content: "", tool_call_id: "call_1", tool_result: { pending_action: { status: "pending" } } },
+    {
+      role: "assistant",
+      content: "I read the receipt: chilli crab, cereal prawns, rice and lime juice with 10% service charge and GST. Sarah is not on the lime juice. Approve the card to save it; Sarah and Ben will get payment requests.",
+    },
+  ];
+  for (const message of messages) {
+    const inserted = await admin.from("agent_messages").insert({ conversation_id: id, host_id: hostId, ...message });
+    if (inserted.error) throw inserted.error;
+  }
+  const action = await admin.from("agent_actions").insert({
+    conversation_id: id,
+    host_id: hostId,
+    tool_call_id: "call_1",
+    tool: "save_split",
+    input: { title: "Friday dinner at Ah Hua" },
+    preview: SPLIT_PREVIEW,
+    preview_hash: "0".repeat(64),
+  });
+  if (action.error) throw action.error;
+  return id;
+}
+
+async function markAgentActionExecuted(conversationId: string): Promise<void> {
+  const admin = adminClient();
+  const now = new Date().toISOString();
+  const updated = await admin
+    .from("agent_actions")
+    .update({ status: "executed", executed_at: now, resolved_at: now, result: { receiptId: "seeded", total: "$126.49" } })
+    .eq("conversation_id", conversationId);
+  if (updated.error) throw updated.error;
+  const note = await admin.from("agent_messages").insert({
+    conversation_id: conversationId,
+    host_id: (await admin.from("agent_conversations").select("host_id").eq("id", conversationId).single()).data?.host_id,
+    role: "user",
+    content: 'The host approved "Save split: Friday dinner at Ah Hua" and it executed.',
+    tool_result: { kind: "action_result", status: "executed" },
+  });
+  if (note.error) throw note.error;
+  const reply = await admin.from("agent_messages").insert({
+    conversation_id: conversationId,
+    host_id: (await admin.from("agent_conversations").select("host_id").eq("id", conversationId).single()).data?.host_id,
+    role: "assistant",
+    content: "Saved. Sarah owes $34.89 and Ben owes $45.80; both have open payment requests now.",
+  });
+  if (reply.error) throw reply.error;
+}
+
 async function main(browser: Browser) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const page = await context.newPage();
 
   // Seed: host, friends, one receipt, one open request.
-  await signInAsNewHost(page, base);
+  const { userId } = await signInAsNewHost(page, base);
   await page.waitForURL(/onboarding/);
   await page.getByLabel(/your display name/i).fill("Jun Wei");
   await page.getByRole("textbox", { name: /mobile number/i }).fill("91234567");
@@ -117,8 +190,17 @@ async function main(browser: Browser) {
   await page.getByRole("button", { name: /^pause$/i }).waitFor();
   await capture("10d-recurring-detail");
   await page.goto(`${base}/app/agent`);
-  await page.getByText(/coming soon/i).waitFor();
-  await capture("08-agent");
+  await page.getByText(/example prompts|who still owes me/i).first().waitFor();
+  await capture("08a-agent-empty");
+  // A conversation with a pending split card, then the same card executed (seeded; no LLM in screenshots).
+  const conversationId = await seedAgentConversation(userId);
+  await page.goto(`${base}/app/agent?conversation=${conversationId}`);
+  await page.getByRole("button", { name: /approve/i }).waitFor();
+  await capture("08b-agent-pending");
+  await markAgentActionExecuted(conversationId);
+  await page.goto(`${base}/app/agent?conversation=${conversationId}`);
+  await page.getByText(/^Executed$/).waitFor();
+  await capture("08c-agent-executed");
   await page.goto(`${base}/app/settings`);
   await page.getByText(/sign out/i).waitFor();
   await capture("09-settings");

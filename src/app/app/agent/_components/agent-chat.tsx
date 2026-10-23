@@ -69,6 +69,11 @@ export function AgentChat({ initial = null }: AgentChatProps) {
       switch (event.type) {
         case "conversation":
           setConversationId(event.id);
+          if (typeof window !== "undefined") {
+            const url = new URL(window.location.href);
+            url.searchParams.set("conversation", event.id);
+            window.history.replaceState(null, "", url);
+          }
           return;
         case "message":
           // The stored copy of what the host just typed replaces the optimistic local one.
