@@ -16,6 +16,7 @@ floating-point arithmetic on money anywhere in this directory.
 | `reminders.ts`| Polite reminder schedule: stages, SGT quiet hours, snooze, host escalation, copy |
 | `recurring.ts`| Recurring shared expenses: `nextRunAt` (SGT 09:00), weighted `recurringCharge`, top-ups |
 | `sgt.ts`      | Asia/Singapore (UTC+8, no DST) wall-clock helpers; no system clock reads |
+| `reconcile.ts`| Bank-alert matcher: ranks open payment requests by reference / known bank name + amount / amount; ties are never guessed |
 
 ## The rule
 

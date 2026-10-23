@@ -25,14 +25,14 @@ export type Database = {
           Tables: {
             "bank_alerts": {
                   Row: {
-                    "amount": number,"bank": string,"created_at": string,"host_id": string,"id": string,"payer_name": string | null,"proposed_friend_id": string | null,"proposed_payment_request_id": string | null,"raw_hash": string,"received_at": string,"reference": string | null,"status": Database["public"]['Enums']["bank_alert_status"]
+                    "amount": number,"bank": string,"created_at": string,"host_id": string,"id": string,"match_confidence": string | null,"match_reason": string | null,"payer_name": string | null,"proposed_friend_id": string | null,"proposed_payment_request_id": string | null,"raw_hash": string,"reason": string | null,"received_at": string,"reference": string | null,"sender": string | null,"status": Database["public"]['Enums']["bank_alert_status"],"subject": string | null
                   }
                   ComputedFields: never
                   Insert: {
-                    "amount": number,"bank": string,"created_at"?: string,"host_id": string,"id"?: string,"payer_name"?: string | null,"proposed_friend_id"?: string | null,"proposed_payment_request_id"?: string | null,"raw_hash": string,"received_at"?: string,"reference"?: string | null,"status"?: Database["public"]['Enums']["bank_alert_status"]
+                    "amount": number,"bank": string,"created_at"?: string,"host_id": string,"id"?: string,"match_confidence"?: string | null,"match_reason"?: string | null,"payer_name"?: string | null,"proposed_friend_id"?: string | null,"proposed_payment_request_id"?: string | null,"raw_hash": string,"reason"?: string | null,"received_at"?: string,"reference"?: string | null,"sender"?: string | null,"status"?: Database["public"]['Enums']["bank_alert_status"],"subject"?: string | null
                   }
                   Update: {
-                    "amount"?: number,"bank"?: string,"created_at"?: string,"host_id"?: string,"id"?: string,"payer_name"?: string | null,"proposed_friend_id"?: string | null,"proposed_payment_request_id"?: string | null,"raw_hash"?: string,"received_at"?: string,"reference"?: string | null,"status"?: Database["public"]['Enums']["bank_alert_status"]
+                    "amount"?: number,"bank"?: string,"created_at"?: string,"host_id"?: string,"id"?: string,"match_confidence"?: string | null,"match_reason"?: string | null,"payer_name"?: string | null,"proposed_friend_id"?: string | null,"proposed_payment_request_id"?: string | null,"raw_hash"?: string,"reason"?: string | null,"received_at"?: string,"reference"?: string | null,"sender"?: string | null,"status"?: Database["public"]['Enums']["bank_alert_status"],"subject"?: string | null
                   }
                   Relationships: [
                     {
@@ -181,14 +181,14 @@ isOneToOne: false
                   ]
                 },"profiles": {
                   Row: {
-                    "created_at": string,"display_name": string | null,"id": string,"paynow_display_name": string | null,"paynow_proxy_type": Database["public"]['Enums']["paynow_proxy_type"] | null,"paynow_proxy_value": string | null,"updated_at": string
+                    "auto_confirm_bank_alerts": boolean,"created_at": string,"display_name": string | null,"id": string,"paynow_display_name": string | null,"paynow_proxy_type": Database["public"]['Enums']["paynow_proxy_type"] | null,"paynow_proxy_value": string | null,"updated_at": string
                   }
                   ComputedFields: never
                   Insert: {
-                    "created_at"?: string,"display_name"?: string | null,"id": string,"paynow_display_name"?: string | null,"paynow_proxy_type"?: Database["public"]['Enums']["paynow_proxy_type"] | null,"paynow_proxy_value"?: string | null,"updated_at"?: string
+                    "auto_confirm_bank_alerts"?: boolean,"created_at"?: string,"display_name"?: string | null,"id": string,"paynow_display_name"?: string | null,"paynow_proxy_type"?: Database["public"]['Enums']["paynow_proxy_type"] | null,"paynow_proxy_value"?: string | null,"updated_at"?: string
                   }
                   Update: {
-                    "created_at"?: string,"display_name"?: string | null,"id"?: string,"paynow_display_name"?: string | null,"paynow_proxy_type"?: Database["public"]['Enums']["paynow_proxy_type"] | null,"paynow_proxy_value"?: string | null,"updated_at"?: string
+                    "auto_confirm_bank_alerts"?: boolean,"created_at"?: string,"display_name"?: string | null,"id"?: string,"paynow_display_name"?: string | null,"paynow_proxy_type"?: Database["public"]['Enums']["paynow_proxy_type"] | null,"paynow_proxy_value"?: string | null,"updated_at"?: string
                   }
                   Relationships: [
                     
