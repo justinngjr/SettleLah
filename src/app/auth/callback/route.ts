@@ -4,27 +4,21 @@ import { safeNextPath } from "@/lib/auth/routes";
 import { createClient } from "@/lib/supabase/server";
 
 /**
- * Magic-link landing. Supabase sends either a PKCE `code` or a `token_hash`
- * + `type` pair depending on the email template; both are handled.
+ * OAuth landing. Supabase redirects here with a PKCE `code` after Google
+ * sign-in; exchanging it sets the session cookies, then we continue to `next`.
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const { searchParams } = request.nextUrl;
   const next = safeNextPath(searchParams.get("next"));
   const code = searchParams.get("code");
-  const tokenHash = searchParams.get("token_hash");
-  const type = searchParams.get("type");
 
-  const supabase = await createClient();
   let message: string | undefined;
-
   if (code) {
+    const supabase = await createClient();
     const { error } = await supabase.auth.exchangeCodeForSession(code);
-    message = error?.message;
-  } else if (tokenHash && (type === "email" || type === "magiclink")) {
-    const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type: "email" });
-    message = error?.message;
+    if (error) message = "Sign-in failed";
   } else {
-    message = "The sign-in link is missing its code.";
+    message = searchParams.get("error_description") ?? "Sign-in failed";
   }
 
   const target = request.nextUrl.clone();

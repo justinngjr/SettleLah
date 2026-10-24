@@ -1,1 +1,1 @@
--- Local development seed. Intentionally empty: sign up via the app (magic link lands in Mailpit at http://127.0.0.1:54324).
+-- Local development seed. Intentionally empty: sign up via the app (Google sign-in; see README "Google sign-in setup").
