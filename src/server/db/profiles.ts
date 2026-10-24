@@ -62,16 +62,26 @@ export async function getProfile(db: DbClient, hostId: string): Promise<Profile 
   return row === null ? null : toProfile(row);
 }
 
+/**
+ * Writes the host's profile, creating the row when it is missing.
+ *
+ * `handle_new_user` creates the profile at sign-up, but an auth user that
+ * predates the trigger (or was created while the schema was being applied) has
+ * no row. Onboarding is the only path that calls this, and it can only upsert,
+ * so a plain UPDATE left such a host stuck on "Could not save your profile"
+ * (PostgREST PGRST116: the result contains 0 rows). Upserting on the primary
+ * key heals the row instead of dead-ending.
+ */
 export async function updateProfile(db: DbClient, hostId: string, patch: ProfilePatch): Promise<Profile> {
-  const update: TablesUpdate<"profiles"> = {};
-  if (patch.displayName !== undefined) update.display_name = patch.displayName;
-  if (patch.paynowDisplayName !== undefined) update.paynow_display_name = patch.paynowDisplayName;
+  const fields: TablesUpdate<"profiles"> = {};
+  if (patch.displayName !== undefined) fields.display_name = patch.displayName;
+  if (patch.paynowDisplayName !== undefined) fields.paynow_display_name = patch.paynowDisplayName;
   if (patch.paynow !== undefined) {
-    update.paynow_proxy_type = patch.paynow?.proxyType ?? null;
-    update.paynow_proxy_value = patch.paynow?.proxyValue ?? null;
+    fields.paynow_proxy_type = patch.paynow?.proxyType ?? null;
+    fields.paynow_proxy_value = patch.paynow?.proxyValue ?? null;
   }
   const row = unwrapRequired(
-    await db.from("profiles").update(update).eq("id", hostId).select("*").single(),
+    await db.from("profiles").upsert({ id: hostId, ...fields }, { onConflict: "id" }).select("*").single(),
     "updateProfile",
   );
   return toProfile(row);
