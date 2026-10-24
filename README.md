@@ -31,7 +31,7 @@ Copy `.env.example` to `.env.local` and set:
 | `NEXT_PUBLIC_SUPABASE_URL`      | Supabase project URL              |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase anon (public) API key    |
 | `SUPABASE_SERVICE_ROLE_KEY`     | Service-role key, server-only; bypasses RLS. Only for the bot/webhooks/cron (`createServiceClient`) |
-| `NEXT_PUBLIC_SITE_URL`          | Optional origin for magic-link redirects (defaults to the request host) |
+| `NEXT_PUBLIC_SITE_URL`          | Optional origin for the Google sign-in redirect back to `/auth/callback` (defaults to the request host) |
 | `LLM_BASE_URL`                  | OpenAI-compatible API root for receipt interpretation (server-only) |
 | `LLM_API_KEY`                   | API key for that provider (server-only) |
 | `LLM_MODEL`                     | Primary model name (server-only) |
@@ -78,19 +78,54 @@ supabase gen types typescript --local > src/server/db/database.types.ts   # afte
 supabase stop
 ```
 
-Sign in at `http://localhost:3000/login`; the magic link lands in Mailpit at
-`http://127.0.0.1:54324`. Writing a migration: add
+Sign in at `http://localhost:3000/login` with Google (see "Google sign-in
+setup" below; local Supabase reads the client id/secret from
+`[auth.external.google]` in `supabase/config.toml`). Writing a migration: add
 `supabase/migrations/<YYYYMMDDHHMMSS>_<name>.sql`, run `supabase db reset`,
 regenerate the types and add/adjust a test in `supabase/tests/`. The schema and
 its rules are described in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Auth
 
-Only hosts sign in (Supabase email magic link): `/login` -> email ->
-`/auth/callback` -> `/app`. `src/proxy.ts` refreshes the session on every
-request and blocks `/app/*` and `/api/*` without a session (redirect / 401).
+Only hosts sign in, with Supabase "Sign in with Google" (OAuth, PKCE): `/login`
+-> Google -> `/auth/callback?code=...` -> `/app`. No emails are sent and there
+is no password. `src/proxy.ts` refreshes the session on every request and
+blocks `/app/*` and `/api/*` without a session (redirect / 401).
 `src/lib/auth/routes.ts` holds the single allowlist of routes that stay
-public. Friends never have accounts.
+public. The `profiles` row is created by a trigger on `auth.users` insert; its
+`display_name` is prefilled from the Google profile (`full_name` / `name`).
+Friends never have accounts.
+
+### Google sign-in setup
+
+One-time setup by the project owner; nothing here goes in the repo.
+
+1. **Google Cloud Console** -> APIs & Services -> Credentials -> Create
+   credentials -> *OAuth client ID*, type **Web application**. Under
+   *Authorized redirect URIs* add exactly
+   `https://zzlzsxjjiaylhixtqmay.supabase.co/auth/v1/callback`. (Configure the
+   OAuth consent screen first if the project has none.) Copy the Client ID and
+   Client secret.
+2. **Supabase Dashboard** -> Authentication -> Providers -> **Google**: enable
+   it and paste the Client ID and Client secret. Save.
+3. **Supabase Dashboard** -> Authentication -> URL Configuration:
+   - *Site URL*: the production origin (the Vercel production alias, e.g.
+     `https://<app>.vercel.app`).
+   - *Redirect URLs*: add `http://localhost:3000/auth/callback`, the production
+     `https://<app>.vercel.app/auth/callback`, and, if preview deployments
+     should sign in too, the wildcard `https://*-<team>.vercel.app/auth/callback`.
+     Supabase only redirects back to URLs on this list; anything else falls
+     back to the Site URL.
+4. Optional: set `NEXT_PUBLIC_SITE_URL` on Vercel to the production origin so
+   the redirect never depends on forwarded headers.
+
+For local Supabase, add the same client to `supabase/config.toml` under
+`[auth.external.google]` (`enabled = true`, `client_id`, and
+`secret = "env(SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET)"`), add
+`http://127.0.0.1:54321/auth/v1/callback` to the Google client's redirect URIs,
+and export `SUPABASE_AUTH_EXTERNAL_GOOGLE_SECRET` before `supabase start`.
+The Playwright smoke tests do not need any of this: `e2e/auth.ts` mints a
+session through the admin API instead.
 
 ## API
 

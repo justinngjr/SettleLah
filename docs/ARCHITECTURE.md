@@ -31,9 +31,11 @@ supabase/tests/        pgTAP tests run by `supabase test db`
 
 ### Auth model
 
-- Hosts sign in with a Supabase email magic link (`/login` -> email ->
-  `/auth/callback`). `public.profiles` is created by a trigger on
-  `auth.users` insert, so `profiles.id = auth.uid()`.
+- Hosts sign in with Supabase "Sign in with Google" (OAuth, PKCE: `/login`
+  -> Google -> `/auth/callback?code=...`). No emails are sent. `public.profiles`
+  is created by a trigger on `auth.users` insert, so `profiles.id = auth.uid()`;
+  `handle_new_user` prefills `display_name` from the provider's
+  `raw_user_meta_data` (`display_name`, then `full_name`, then `name`).
 - Every other table has `host_id uuid references auth.users on delete
   cascade`. RLS policies are `host_id = (select auth.uid())`; the
   `authenticated` role can `select`/`insert` its own rows (and `update` where
