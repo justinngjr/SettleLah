@@ -165,8 +165,10 @@ reminders. Nothing new is messaged.
   Telegram is configured, `notifySplit`. A failed post is reported in the
   summary but the charge stands. One expense failing never stops the rest.
 - `GET /api/cron/recurring` (public in `PUBLIC_API_ROUTES`, requires
-  `Authorization: Bearer $CRON_SECRET`, constant-time), hourly in
-  `vercel.json`. Runs at 09:00 Singapore on the anchor day; monthly anchors
+  `Authorization: Bearer $CRON_SECRET`, constant-time), once a day in
+  `vercel.json` (02:30 UTC, about 10:30 Singapore; Vercel Hobby only allows daily
+  crons, so the runner catches up on every period that came due since the last
+  run, charging each exactly once). Runs due at 09:00 Singapore on the anchor day; monthly anchors
   past a short month fall on its last day (`nextRunAt`).
 - Tests: `src/server/recurring/runner.test.ts` (idempotency, month-end
   anchors, notify only with a group), `src/server/db/recurring.test.ts`,
@@ -296,7 +298,9 @@ Pending `friend_button` claims from "I've paid" already surface through
   are set; 401 unless `X-Telegram-Bot-Api-Secret-Token` matches
   (constant-time). Register with `pnpm telegram:set-webhook <public-url>`.
 - `GET /api/cron/reminders` (public, requires `Authorization: Bearer
-  $CRON_SECRET`), scheduled every 15 minutes in `vercel.json`. For each
+  $CRON_SECRET`), scheduled once a day in `vercel.json` (02:30 UTC, about 10:30 Singapore, inside the
+  10:00-21:00 send window; Vercel Hobby only allows daily crons, so a reminder
+  due earlier waits for the next run). For each
   `open` request it loads/creates the `reminders` row, asks the domain
   (`nextReminder`) and acts: `send` (copy from `reminderMessage`, QR again
   only on stage 0, persisted with `afterSent`), `paused` (pending claim),

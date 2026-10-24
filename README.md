@@ -42,7 +42,7 @@ Copy `.env.example` to `.env.local` and set:
 | `TELEGRAM_BOT_TOKEN`            | Bot token from @BotFather (server-only). The Telegram routes answer 503 without it |
 | `TELEGRAM_BOT_USERNAME`         | The bot's @handle without the `@`; used to build `t.me` deep links |
 | `TELEGRAM_WEBHOOK_SECRET`       | Random secret Telegram echoes in `X-Telegram-Bot-Api-Secret-Token` on every webhook call |
-| `CRON_SECRET`                   | Bearer token Vercel Cron sends to `/api/cron/reminders` |
+| `CRON_SECRET`                   | Bearer token Vercel Cron sends to `/api/cron/reminders` and `/api/cron/recurring` (both run daily at 02:30 UTC so they fit Vercel's Hobby plan; on Pro, change the schedules in `vercel.json` to `*/15 * * * *` and `0 * * * *`) |
 
 `.env*.local` files are gitignored. The app builds without real values; they
 are only required at runtime when a Supabase client is created.
